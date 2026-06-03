@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +37,7 @@ class QuotaStore:
     def __init__(self, path: Path | None = None, clock: Callable[[], datetime] | None = None):
         self.path = path or default_quota_path()
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._lock = threading.Lock()  # the proxy is threaded; guard read-modify-write
         self._data: dict = self._load()
 
     def _load(self) -> dict:
@@ -47,10 +49,14 @@ class QuotaStore:
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        with tmp.open("w", encoding="utf-8") as fh:
-            json.dump(self._data, fh, indent=2, sort_keys=True)
-        os.replace(tmp, self.path)
+        # Unique temp name so concurrent savers never clobber each other's temp.
+        tmp = self.path.with_suffix(f"{self.path.suffix}.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            with tmp.open("w", encoding="utf-8") as fh:
+                json.dump(self._data, fh, indent=2, sort_keys=True)
+            os.replace(tmp, self.path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def _today(self) -> dict:
         day = _utc_day(self._clock())
@@ -66,14 +72,22 @@ class QuotaStore:
         return f"{provider_id}::{model}"
 
     def used(self, provider_id: str, model: str) -> int:
-        return int(self._today().get(self._key(provider_id, model), 0))
+        with self._lock:
+            return int(self._today().get(self._key(provider_id, model), 0))
 
     def record(self, provider_id: str, model: str, n: int = 1) -> int:
-        bucket = self._today()
-        key = self._key(provider_id, model)
-        bucket[key] = int(bucket.get(key, 0)) + n
-        self._save()
-        return bucket[key]
+        with self._lock:
+            bucket = self._today()
+            key = self._key(provider_id, model)
+            bucket[key] = int(bucket.get(key, 0)) + n
+            count = bucket[key]
+            try:
+                self._save()
+            except OSError:
+                # Quota is advisory — never let a persistence hiccup abort an
+                # otherwise-successful completion.
+                pass
+            return count
 
     def over_budget(self, provider_id: str, model: str, rpd: int) -> bool:
         """True if a positive rpd hint exists and today's use meets/exceeds it."""
@@ -83,4 +97,5 @@ class QuotaStore:
 
     def snapshot(self) -> dict[str, int]:
         """Today's counters as a flat {provider::model: count} dict."""
-        return dict(self._today())
+        with self._lock:
+            return dict(self._today())

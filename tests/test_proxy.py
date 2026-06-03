@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import urllib.error
 import urllib.request
 
 import pytest
@@ -92,6 +93,62 @@ def test_streaming_sse(server):
             chunk = json.loads(line[len("data: ") :])
             content += chunk["choices"][0]["delta"].get("content", "")
     assert content == "ok"
+
+
+def _expect_status(url, payload, headers=None):
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", **(headers or {})},
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:  # noqa: S310
+            return resp.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def test_malformed_body_returns_400_not_crash(server):
+    # non-object body
+    assert _expect_status(server + "/v1/chat/completions", [1, 2, 3]) == 400
+    # missing messages
+    assert _expect_status(server + "/v1/chat/completions", {"model": "auto"}) == 400
+    # bad types
+    assert (
+        _expect_status(
+            server + "/v1/chat/completions",
+            {"messages": [{"role": "user", "content": "hi"}], "max_tokens": "lots"},
+        )
+        == 400
+    )
+    # server still alive afterward
+    assert (
+        _post_json(
+            server + "/v1/chat/completions",
+            {"model": "auto", "messages": [{"role": "user", "content": "hi"}]},
+        )[0]
+        == 200
+    )
+
+
+def test_proxy_auth(providers, env, quota):
+    from llmbuffet.proxy import serve
+
+    buffet = Buffet(providers, quota=quota, env=env, post=make_post({}))
+    httpd = serve(buffet, host="127.0.0.1", port=0, api_key="secret")
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    body = {"model": "auto", "messages": [{"role": "user", "content": "hi"}]}
+    try:
+        assert _expect_status(base + "/v1/chat/completions", body) == 401  # no token
+        assert (
+            _expect_status(base + "/v1/chat/completions", body, {"Authorization": "Bearer secret"})
+            == 200
+        )
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
 
 
 def test_parse_model():

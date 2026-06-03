@@ -9,6 +9,7 @@ and per-day budgets as it goes.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -53,6 +54,18 @@ class Buffet:
         self._clock = clock or time.monotonic
         # provider_id -> monotonic time until which to deprioritize after a 429
         self._cooldown_until: dict[str, float] = {}
+        self._cooldown_lock = threading.Lock()
+
+    def _mark_cooldown(self, provider_id: str, now: float) -> None:
+        until = now + self.cooldown_seconds
+        with self._cooldown_lock:
+            self._cooldown_until[provider_id] = max(
+                self._cooldown_until.get(provider_id, 0.0), until
+            )
+
+    def _cooled(self, provider_id: str, now: float) -> bool:
+        with self._cooldown_lock:
+            return self._cooldown_until.get(provider_id, 0.0) > now
 
     # ---- construction -------------------------------------------------
 
@@ -155,12 +168,17 @@ class Buffet:
         # Providers recently rate-limited (429) are tried last, not skipped — so
         # a transient cooldown never makes a request fail outright.
         now = self._clock()
-        available = [t for t in targets if self._cooldown_until.get(t.provider.id, 0.0) <= now]
-        cooled = [t for t in targets if self._cooldown_until.get(t.provider.id, 0.0) > now]
+        available = [t for t in targets if not self._cooled(t.provider.id, now)]
+        cooled = [t for t in targets if self._cooled(t.provider.id, now)]
         sequence = available + cooled
 
         attempts: list[tuple[str, str]] = []
+        rate_limited: set[str] = set()  # providers that 429'd during THIS request
         for target in sequence:
+            if target.provider.id in rate_limited:
+                # Already 429'd this request — don't waste calls on its other models.
+                attempts.append((target.name, "skipped (provider rate-limited this request)"))
+                continue
             api_key = target.provider.api_key(self.env)
             if api_key is None and not target.provider.keyless:  # pragma: no cover
                 attempts.append((target.name, "missing api key"))
@@ -179,7 +197,8 @@ class Buffet:
                 )
             except ProviderHTTPError as exc:
                 if exc.status == 429:
-                    self._cooldown_until[target.provider.id] = now + self.cooldown_seconds
+                    self._mark_cooldown(target.provider.id, now)
+                    rate_limited.add(target.provider.id)
                 attempts.append((target.name, str(exc)))
                 continue
             except Exception as exc:  # network error, etc. — try the next one

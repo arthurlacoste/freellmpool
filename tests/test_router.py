@@ -28,8 +28,9 @@ def test_failover_skips_429(providers, env, quota):
     reply = buffet.ask("hello", providers=["alpha", "beta"])
     assert reply.text == "from beta"
     assert reply.provider_id == "beta"
-    # alpha had 2 models, both 429 → 2 calls, then beta succeeds → 3 total
-    assert len(post.calls) == 3
+    # alpha-small 429s → alpha's other model is skipped this request → beta wins.
+    # So only 2 calls (alpha-small, beta), not 3.
+    assert len(post.calls) == 2
 
 
 def test_all_exhausted_raises(providers, env, quota):

@@ -19,6 +19,7 @@ Supported routes:
 from __future__ import annotations
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .errors import AllProvidersExhausted, BuffetError, NoProvidersConfigured
@@ -33,9 +34,9 @@ def _model_ids(buffet: Buffet) -> list[str]:
     return ids
 
 
-def make_handler(buffet: Buffet):
+def make_handler(buffet: Buffet, api_key: str | None = None):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "llmbuffet/0.1"
+        server_version = "llmbuffet/0.2"
 
         # quiet by default; the server prints its own concise log line
         def log_message(self, format, *args):  # noqa: A002
@@ -52,7 +53,26 @@ def make_handler(buffet: Buffet):
         def _error(self, status: int, message: str, code: str = "llmbuffet_error") -> None:
             self._send(status, {"error": {"message": message, "type": code}})
 
+        def _authorized(self) -> bool:
+            """If a proxy key is configured, require a matching Bearer token."""
+            if not api_key:
+                return True
+            header = self.headers.get("Authorization", "")
+            return header == f"Bearer {api_key}"
+
         def do_GET(self) -> None:  # noqa: N802
+            try:
+                self._do_get()
+            except Exception as exc:  # never let a request kill the thread
+                self._error(500, f"internal error: {type(exc).__name__}", "internal_error")
+
+        def do_POST(self) -> None:  # noqa: N802
+            try:
+                self._do_post()
+            except Exception as exc:  # never let a request kill the thread
+                self._error(500, f"internal error: {type(exc).__name__}", "internal_error")
+
+        def _do_get(self) -> None:
             if self.path.rstrip("/") == "/healthz":
                 self._send(200, {"status": "ok"})
                 return
@@ -65,37 +85,61 @@ def make_handler(buffet: Buffet):
                 return
             self._error(404, f"unknown route {self.path}", "not_found")
 
-        def do_POST(self) -> None:  # noqa: N802
+        def _do_post(self) -> None:
             route = self.path.rstrip("/")
             if not (route.endswith("/v1/chat/completions") or route == "/chat/completions"):
                 self._error(404, f"unknown route {self.path}", "not_found")
                 return
+            if not self._authorized():
+                self._error(401, "invalid or missing API key", "invalid_api_key")
+                return
 
-            length = int(self.headers.get("Content-Length", 0) or 0)
+            try:
+                length = int(self.headers.get("Content-Length", 0) or 0)
+            except (TypeError, ValueError):
+                self._error(400, "invalid Content-Length header", "invalid_request_error")
+                return
             try:
                 raw = self.rfile.read(length) if length else b"{}"
                 req = json.loads(raw or b"{}")
             except (json.JSONDecodeError, ValueError):
                 self._error(400, "invalid JSON body", "invalid_request_error")
                 return
+            if not isinstance(req, dict):
+                self._error(400, "request body must be a JSON object", "invalid_request_error")
+                return
 
             messages = req.get("messages")
             if not isinstance(messages, list) or not messages:
                 self._error(400, "'messages' must be a non-empty array", "invalid_request_error")
                 return
+            if not all(isinstance(m, dict) for m in messages):
+                self._error(400, "each message must be an object", "invalid_request_error")
+                return
 
             requested = req.get("model") or "auto"
+            if not isinstance(requested, str):
+                self._error(400, "'model' must be a string", "invalid_request_error")
+                return
             provider_filter, model_filter = _parse_model(
                 requested, {p.id for p in buffet.providers}
             )
-            max_tokens = int(req.get("max_tokens") or 1024)
-            temperature = float(
-                req.get("temperature") if req.get("temperature") is not None else 0.0
-            )
+            try:
+                max_tokens = int(req.get("max_tokens") or 1024)
+                temp_raw = req.get("temperature")
+                temperature = 0.0 if temp_raw is None else float(temp_raw)
+            except (TypeError, ValueError):
+                self._error(
+                    400, "'max_tokens' and 'temperature' must be numbers", "invalid_request_error"
+                )
+                return
 
             try:
                 reply = buffet.chat(
-                    [{"role": m.get("role", "user"), "content": _content(m)} for m in messages],
+                    [
+                        {"role": str(m.get("role", "user")), "content": _content(m)}
+                        for m in messages
+                    ],
                     model=model_filter,
                     providers=provider_filter,
                     max_tokens=max_tokens,
@@ -202,7 +246,16 @@ def _sse_chunks(reply):
     yield {**base, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
 
 
-def serve(buffet: Buffet, host: str = "127.0.0.1", port: int = 8080) -> ThreadingHTTPServer:
-    handler = make_handler(buffet)
+def serve(
+    buffet: Buffet,
+    host: str = "127.0.0.1",
+    port: int = 8080,
+    api_key: str | None = None,
+) -> ThreadingHTTPServer:
+    """Build the proxy server. If ``api_key`` is set (or ``LLMBUFFET_PROXY_KEY``
+    is in the environment), POSTs must present ``Authorization: Bearer <key>``."""
+    if api_key is None:
+        api_key = os.environ.get("LLMBUFFET_PROXY_KEY") or None
+    handler = make_handler(buffet, api_key)
     httpd = ThreadingHTTPServer((host, port), handler)
     return httpd

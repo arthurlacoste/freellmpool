@@ -20,6 +20,17 @@
 # time. Override per-user in ~/.config/llmbuffet/providers.toml.
 
 # ---- Keyless / zero-setup (works out of the box) ----------------------------
+# LLM7 first: it's the most reliable keyless pool. OVHcloud's anonymous tier is
+# generous but rate-limits aggressively, so it sits second as a bonus.
+
+[[provider]]
+id = "llm7"
+label = "LLM7 (key optional)"
+adapter = "openai"
+base_url = "https://api.llm7.io/v1"
+key_env = "LLM7_API_KEY"
+key_optional = true
+models = [{ name = "codestral-latest", rpd = 0 }]
 
 [[provider]]
 id = "ovh"
@@ -34,15 +45,6 @@ models = [
     { name = "gpt-oss-120b", rpd = 0 },
     { name = "Mistral-Small-3.2-24B-Instruct-2506", rpd = 0 },
 ]
-
-[[provider]]
-id = "llm7"
-label = "LLM7 (key optional)"
-adapter = "openai"
-base_url = "https://api.llm7.io/v1"
-key_env = "LLM7_API_KEY"
-key_optional = true
-models = [{ name = "codestral-latest", rpd = 0 }]
 
 # ---- Fast & generous (recommended first keys) -------------------------------
 
@@ -213,4 +215,4 @@ label = "LongCat (Meituan)"
 adapter = "openai"
 base_url = "https://api.longcat.chat/openai/v1"
 key_env = "LONGCAT_API_KEY"
-models = [{ name = "LongCat-Flash-Chat", rpd = 0 }]
+models = [{ name = "LongCat-2.0-Preview", rpd = 0 }]

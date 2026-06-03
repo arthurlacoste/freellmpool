@@ -23,6 +23,19 @@ All notable changes to this project are documented here. The format is based on
   `<think>…</think>` blocks are stripped from output.
 - `llmbuffet ask --json` requests JSON and strips code fences.
 
+### Hardening (post-review)
+- Proxy now validates all request fields and returns OpenAI-style `400`s for
+  malformed input; a catch-all ensures no request can kill a server thread.
+- Optional proxy auth: `--api-key` / `LLMBUFFET_PROXY_KEY` requires a Bearer
+  token; a warning fires when binding to a non-loopback host without one.
+- Quota store is now thread-safe (lock + unique temp file) and best-effort, so
+  a persistence hiccup can't abort a successful completion.
+- A provider that returns `429` has its remaining models skipped for that
+  request; cooldowns update under a lock with `max()`.
+- Verified live against 11 providers + the OpenAI SDK (non-streaming & SSE).
+  Fixed the LongCat model id (`LongCat-2.0-Preview`); LLM7 leads the keyless
+  pool (most reliable zero-key provider).
+
 ## [0.1.0] — 2026-06-02
 
 Initial release.

@@ -9,6 +9,7 @@ llmbuffet proxy                run the OpenAI-compatible proxy server
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from . import __version__
@@ -149,11 +150,23 @@ def cmd_proxy(args: argparse.Namespace) -> int:
         )
         return 3
 
-    httpd = serve(buffet, host=args.host, port=args.port)
+    proxy_key = args.api_key or os.environ.get("LLMBUFFET_PROXY_KEY") or None
+    loopback = args.host in {"127.0.0.1", "localhost", "::1"}
+    if not loopback and not proxy_key:
+        print(
+            f"llmbuffet: WARNING — binding to {args.host} (not loopback) with NO proxy key "
+            "exposes all your configured providers to the network. Set --api-key or "
+            "LLMBUFFET_PROXY_KEY, or bind to 127.0.0.1.",
+            file=sys.stderr,
+        )
+
+    httpd = serve(buffet, host=args.host, port=args.port, api_key=proxy_key)
     n_models = sum(len(p.models) for p in buffet.providers)
+    auth_note = "  auth: Bearer key required\n" if proxy_key else ""
     print(
         f"llmbuffet proxy on http://{args.host}:{args.port}/v1  "
         f"({len(buffet.providers)} providers, {n_models} models)\n"
+        f"{auth_note}"
         f"  point your OpenAI client at:  OPENAI_BASE_URL=http://{args.host}:{args.port}/v1\n"
         "  press Ctrl-C to stop",
         file=sys.stderr,
@@ -206,6 +219,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_proxy = sub.add_parser("proxy", help="run the OpenAI-compatible proxy server")
     p_proxy.add_argument("--host", default="127.0.0.1")
     p_proxy.add_argument("--port", type=int, default=8080)
+    p_proxy.add_argument(
+        "--api-key",
+        default=None,
+        help="require this Bearer token on requests (or set LLMBUFFET_PROXY_KEY)",
+    )
     p_proxy.set_defaults(func=cmd_proxy)
 
     return parser
