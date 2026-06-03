@@ -2,6 +2,7 @@
 
 **A free, OpenAI-compatible LLM gateway that pools 15 free-tier providers (Groq, Cerebras, NVIDIA NIM, Gemini, OpenRouter, GitHub Models, Cloudflare & more) behind one endpoint — with automatic failover and quota tracking. Works out of the box with zero API keys.**
 
+[![PyPI](https://img.shields.io/pypi/v/llmbuffet.svg)](https://pypi.org/project/llmbuffet/)
 [![CI](https://github.com/0xzr/llmbuffet/actions/workflows/ci.yml/badge.svg)](https://github.com/0xzr/llmbuffet/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org)
