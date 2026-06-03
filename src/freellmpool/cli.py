@@ -13,7 +13,7 @@ import os
 import sys
 
 from . import __version__
-from .config import configured_providers, load_catalog
+from .config import configured_providers, load_catalog, resolve_alias
 from .errors import AllProvidersExhausted, NoProvidersConfigured
 from .quota import QuotaStore
 from .router import Pool
@@ -37,7 +37,10 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     # Support `--model provider/model` as a shorthand for picking an exact
     # model on an exact provider (in addition to `--providers` + bare `--model`).
-    model_filter = args.model
+    # Common OpenAI/Anthropic names (gpt-4o-mini, ...) resolve to a free target.
+    model_filter = resolve_alias(args.model) if args.model else None
+    if model_filter == "auto":
+        model_filter = None
     provider_filter = args.providers.split(",") if args.providers else None
     if model_filter and "/" in model_filter:
         prov, _, mdl = model_filter.partition("/")

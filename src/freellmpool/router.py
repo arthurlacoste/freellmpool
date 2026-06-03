@@ -125,6 +125,8 @@ class Pool:
         max_tokens: int = 1024,
         temperature: float = 0.0,
         timeout: float = 90.0,
+        tools: list | None = None,
+        tool_choice=None,
     ) -> Reply:
         """Send ``prompt`` to the first provider that succeeds.
 
@@ -143,6 +145,8 @@ class Pool:
             max_tokens=max_tokens,
             temperature=temperature,
             timeout=timeout,
+            tools=tools,
+            tool_choice=tool_choice,
         )
 
     def chat(
@@ -154,6 +158,8 @@ class Pool:
         max_tokens: int = 1024,
         temperature: float = 0.0,
         timeout: float = 90.0,
+        tools: list | None = None,
+        tool_choice=None,
     ) -> Reply:
         """Like :meth:`ask` but takes raw OpenAI-style ``messages``."""
         if not self.providers:
@@ -193,6 +199,8 @@ class Pool:
                     max_tokens=max_tokens,
                     temperature=temperature,
                     timeout=timeout,
+                    tools=tools,
+                    tool_choice=tool_choice,
                     post=self._post,
                 )
             except ProviderHTTPError as exc:
@@ -205,11 +213,13 @@ class Pool:
                 attempts.append((target.name, f"{type(exc).__name__}: {exc}"))
                 continue
 
-            if not reply.text:
+            has_tool_calls = bool(reply.message and reply.message.get("tool_calls"))
+            if not reply.text and not has_tool_calls:
                 attempts.append((target.name, "empty completion"))
                 continue
 
             self.quota.record(target.provider.id, target.model)
+            reply.attempts = len(attempts) + 1
             return reply
 
         raise AllProvidersExhausted(attempts)

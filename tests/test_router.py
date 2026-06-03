@@ -137,3 +137,25 @@ def test_empty_completion_is_failure(providers, env, quota):
     pool = Pool(providers, quota=quota, env=env, post=post)
     reply = pool.ask("hi", providers=["alpha", "beta"])
     assert reply.provider_id == "beta"  # empty alpha skipped
+
+
+def test_tool_calls_reply_is_success(providers, env, quota):
+    tc = [{"id": "c", "type": "function", "function": {"name": "f", "arguments": "{}"}}]
+    post = make_post(
+        {
+            "alpha.test": (
+                200,
+                {
+                    "choices": [
+                        {"message": {"role": "assistant", "content": None, "tool_calls": tc}}
+                    ]
+                },
+            )
+        }
+    )
+    pool = Pool(providers, quota=quota, env=env, post=post)
+    reply = pool.ask(
+        "hi", providers=["alpha"], tools=[{"type": "function", "function": {"name": "f"}}]
+    )
+    assert reply.message["tool_calls"] == tc  # empty content but tool_calls → success
+    assert reply.attempts == 1

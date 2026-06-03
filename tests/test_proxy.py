@@ -192,6 +192,65 @@ def test_responses_missing_input_400(server):
     assert _expect_status(server + "/v1/responses", {"model": "auto"}) == 400
 
 
+def test_proxy_alias_routes(server):
+    # an OpenAI model name the pool doesn't have still routes (alias → auto)
+    status, body = _post_json(
+        server + "/v1/chat/completions",
+        {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert status == 200
+    assert body["choices"][0]["message"]["content"] == "ok"
+
+
+def test_proxy_observability_headers(server):
+    req = urllib.request.Request(
+        server + "/v1/chat/completions",
+        data=json.dumps(
+            {"model": "auto", "messages": [{"role": "user", "content": "hi"}]}
+        ).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req) as resp:  # noqa: S310
+        assert resp.headers.get("X-Freellmpool-Provider")
+        assert resp.headers.get("X-Freellmpool-Model")
+        assert resp.headers.get("X-Freellmpool-Attempts")
+
+
+def test_proxy_tool_calls_passthrough(providers, env, quota):
+    tc = [{"id": "c", "type": "function", "function": {"name": "f", "arguments": "{}"}}]
+    post = make_post(
+        {
+            "alpha.test": (
+                200,
+                {
+                    "choices": [
+                        {"message": {"role": "assistant", "content": None, "tool_calls": tc}}
+                    ]
+                },
+            )
+        }
+    )
+    pool = Pool(providers, quota=quota, env=env, post=post)
+    httpd = serve(pool, host="127.0.0.1", port=0)
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        _, body = _post_json(
+            base + "/v1/chat/completions",
+            {
+                "model": "alpha",
+                "messages": [{"role": "user", "content": "hi"}],
+                "tools": [{"type": "function", "function": {"name": "f"}}],
+            },
+        )
+        assert body["choices"][0]["finish_reason"] == "tool_calls"
+        assert body["choices"][0]["message"]["tool_calls"] == tc
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
 def test_parse_model():
     ids = {"groq", "cerebras"}
     assert _parse_model("auto", ids) == (None, None)

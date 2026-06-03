@@ -2,7 +2,22 @@
 
 from __future__ import annotations
 
-from freellmpool.config import configured_providers, load_catalog
+from freellmpool.config import configured_providers, load_catalog, resolve_alias
+
+
+def test_alias_default_maps_to_auto():
+    assert resolve_alias("gpt-4o-mini", {}) == "auto"
+    assert resolve_alias("claude-3-5-sonnet-latest", {}) == "auto"
+
+
+def test_alias_unknown_passthrough():
+    assert resolve_alias("groq/llama-3.1-8b-instant", {}) == "groq/llama-3.1-8b-instant"
+    assert resolve_alias("auto", {}) == "auto"
+
+
+def test_alias_env_override():
+    env = {"FREELLMPOOL_ALIAS_GPT_4O_MINI": "groq/llama-3.3-70b-versatile"}
+    assert resolve_alias("gpt-4o-mini", env) == "groq/llama-3.3-70b-versatile"
 
 
 def test_packaged_catalog_loads():

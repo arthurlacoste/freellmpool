@@ -11,7 +11,7 @@
 
 Groq, Cerebras, NVIDIA NIM, Google Gemini, OpenRouter, GitHub Models, Cloudflare Workers AI, Mistral, Cohere, and more each hand out a generous **free tier** — but each has its own SDK, rate limits, and daily cap. `freellmpool` puts all of them into one pool:
 
-- 🔌 **One OpenAI-compatible endpoint.** Point any OpenAI SDK / tool at `freellmpool` and it just works — `/v1/chat/completions`, `/v1/models`, and a `/v1/responses` shim for **Codex CLI & agents**.
+- 🔌 **True drop-in.** Point any OpenAI SDK / tool at `freellmpool` and it just works — `/v1/chat/completions`, `/v1/models`, **tool/function-calling**, and a `/v1/responses` shim for **Codex CLI & agents**. Common model names (`gpt-4o-mini`, `claude-3-5-sonnet`, …) are **auto-aliased to free models**, so existing code runs unchanged.
 - 🟢 **Zero config.** Works with **no API keys at all** — keyless providers are built in. `pip install` → `ask` → done.
 - 🔁 **Automatic failover.** Rate-limited or 5xx on one provider? `freellmpool` transparently rolls to the next, with a cooldown so it stops hammering a throttled pool.
 - 📊 **Quota-aware routing.** Spreads load least-used-first and respects each free daily limit, so you squeeze the most out of every tier.
@@ -168,7 +168,13 @@ export OPENAI_BASE_URL=http://localhost:8080/v1 OPENAI_API_KEY=anything
 aider --model openai/auto          # or point any OpenAI-compatible tool here
 ```
 
-The proxy supports `stream: true` (Server-Sent Events), so streaming chat UIs and agent loops work too. Full integration snippets (aider, LangChain, Continue/Cline, OpenAI Agents SDK) are in **[docs/AGENTS.md](docs/AGENTS.md)**.
+The proxy supports `stream: true` (SSE) and tool/function-calling, so streaming chat UIs and tool-using agent loops work too.
+
+## Works with your tools
+
+Anything that accepts a custom OpenAI base URL drops straight in — copy-paste configs in **[docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)**:
+
+**[opencode](docs/INTEGRATIONS.md#opencode)** · **[aider](docs/INTEGRATIONS.md#aider)** · **[Continue](docs/INTEGRATIONS.md#continue-vs-code--jetbrains)** · **[Cline / Roo](docs/INTEGRATIONS.md#cline--roo-code)** · **[Cursor / Windsurf](docs/INTEGRATIONS.md#cursor--windsurf)** · **[Codex CLI](docs/AGENTS.md#openai-codex-cli)** · **[Open WebUI](docs/INTEGRATIONS.md#open-webui)** · **[LibreChat](docs/INTEGRATIONS.md#librechat)** · **[LangChain](docs/INTEGRATIONS.md#langchain)** · **[LlamaIndex](docs/INTEGRATIONS.md#llamaindex)** · **[Vercel AI SDK](docs/INTEGRATIONS.md#vercel-ai-sdk)** · **[llm CLI](docs/INTEGRATIONS.md#simon-willisons-llm)** · **[shell-gpt](docs/INTEGRATIONS.md#shell-gpt-sgpt)** · **[n8n](docs/INTEGRATIONS.md#n8n)**
 
 ## Use it as a library
 

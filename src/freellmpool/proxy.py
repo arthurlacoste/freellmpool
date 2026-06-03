@@ -23,6 +23,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from .config import resolve_alias
 from .errors import AllProvidersExhausted, BuffetError, NoProvidersConfigured
 from .router import Pool
 
@@ -37,17 +38,19 @@ def _model_ids(pool: Pool) -> list[str]:
 
 def make_handler(pool: Pool, api_key: str | None = None):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "freellmpool/0.3"
+        server_version = "freellmpool/0.4"
 
         # quiet by default; the server prints its own concise log line
         def log_message(self, format, *args):  # noqa: A002
             return
 
-        def _send(self, status: int, payload: dict) -> None:
+        def _send(self, status: int, payload: dict, headers: dict | None = None) -> None:
             data = json.dumps(payload).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            for key, value in (headers or {}).items():
+                self.send_header(key, str(value))
             self.end_headers()
             self.wfile.write(data)
 
@@ -117,13 +120,14 @@ def make_handler(pool: Pool, api_key: str | None = None):
             else:
                 self._handle_chat(req)
 
-        def _resolve(self, req: dict, messages: list[dict]):
+        def _resolve(self, req: dict, messages: list[dict], *, tools=None, tool_choice=None):
             """Shared: resolve model/params and call the pool. Returns a Reply or
             sends an error response and returns None."""
             requested = req.get("model") or "auto"
             if not isinstance(requested, str):
                 self._error(400, "'model' must be a string", "invalid_request_error")
                 return None
+            requested = resolve_alias(requested, pool.env)  # gpt-4o-mini → free target
             provider_filter, model_filter = _parse_model(requested, {p.id for p in pool.providers})
             try:
                 max_tokens = int(req.get("max_tokens") or req.get("max_output_tokens") or 1024)
@@ -141,6 +145,8 @@ def make_handler(pool: Pool, api_key: str | None = None):
                     providers=provider_filter,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    tools=tools,
+                    tool_choice=tool_choice,
                 )
             except NoProvidersConfigured as exc:
                 self._error(503, str(exc), "no_providers")
@@ -158,14 +164,15 @@ def make_handler(pool: Pool, api_key: str | None = None):
             if not all(isinstance(m, dict) for m in messages):
                 self._error(400, "each message must be an object", "invalid_request_error")
                 return
-            norm = [{"role": str(m.get("role", "user")), "content": _content(m)} for m in messages]
-            reply = self._resolve(req, norm)
+            norm = _normalize_messages(messages)
+            tools = req.get("tools") if isinstance(req.get("tools"), list) else None
+            reply = self._resolve(req, norm, tools=tools, tool_choice=req.get("tool_choice"))
             if reply is None:
                 return
             if req.get("stream"):
                 self._send_sse(_sse_chunks(reply))
             else:
-                self._send(200, _to_openai_response(reply))
+                self._send(200, _to_openai_response(reply), headers=_obs_headers(reply))
 
         def _handle_responses(self, req: dict) -> None:
             """Minimal OpenAI Responses API (/v1/responses) shim for Codex CLI
@@ -234,18 +241,38 @@ def _content(message: dict) -> str:
     return str(content)
 
 
+def _normalize_messages(messages: list) -> list[dict]:
+    """Flatten content to text while preserving tool-calling fields so multi-turn
+    tool conversations (assistant tool_calls + tool results) survive the proxy."""
+    out: list[dict] = []
+    for m in messages:
+        nm: dict = {"role": str(m.get("role", "user")), "content": _content(m)}
+        for key in ("tool_calls", "tool_call_id", "name"):
+            if m.get(key) is not None:
+                nm[key] = m[key]
+        out.append(nm)
+    return out
+
+
+def _obs_headers(reply) -> dict:
+    return {
+        "X-Freellmpool-Provider": reply.provider_id,
+        "X-Freellmpool-Model": reply.model,
+        "X-Freellmpool-Attempts": reply.attempts,
+    }
+
+
 def _to_openai_response(reply) -> dict:
+    message = {"role": "assistant", "content": reply.text or None}
+    finish = "stop"
+    if reply.message and reply.message.get("tool_calls"):
+        message["tool_calls"] = reply.message["tool_calls"]
+        finish = "tool_calls"
     return {
         "id": f"chatcmpl-freellmpool-{reply.provider_id}",
         "object": "chat.completion",
         "model": f"{reply.provider_id}/{reply.model}",
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": reply.text},
-                "finish_reason": "stop",
-            }
-        ],
+        "choices": [{"index": 0, "message": message, "finish_reason": finish}],
         "usage": {
             "prompt_tokens": reply.prompt_tokens or 0,
             "completion_tokens": reply.completion_tokens or 0,

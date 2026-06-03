@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-06-03
+
+### Added
+- **Model aliasing.** Common OpenAI/Anthropic names (`gpt-4o-mini`, `gpt-4o`,
+  `claude-3-5-sonnet`, …) auto-resolve to free models, so existing code runs
+  against freellmpool unchanged. Override with `FREELLMPOOL_ALIAS_<name>=...`.
+- **Tool / function-calling passthrough.** `tools` / `tool_choice` are forwarded
+  to providers that support them and `tool_calls` are returned — unlocking
+  aider, Continue, and other agentic tools. Live-verified on Groq.
+- **Observability headers** on proxy responses: `X-Freellmpool-Provider`,
+  `X-Freellmpool-Model`, `X-Freellmpool-Attempts`.
+- **[docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)** — copy-paste setup for opencode,
+  aider, Continue, Cline, Cursor, Open WebUI, LibreChat, LangChain, LlamaIndex,
+  Vercel AI SDK, `llm` CLI, shell-gpt, n8n, and more.
+
 ## [0.3.0] — 2026-06-03
 
 ### Changed

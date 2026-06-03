@@ -55,6 +55,32 @@ def test_non_thinking_model_keeps_max_tokens():
     assert seen["max_tokens"] == 512
 
 
+def test_tools_forwarded_and_tool_calls_preserved():
+    tc = [{"id": "call_1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]
+    seen = {}
+
+    def post(url, headers, body, timeout):
+        seen.update(body)
+        return C.HTTPResult(
+            200,
+            {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": tc}}]},
+            "",
+        )
+
+    reply = C.call(
+        P,
+        "some-model",
+        [{"role": "user", "content": "hi"}],
+        api_key="k",
+        env={},
+        tools=[{"type": "function", "function": {"name": "f"}}],
+        post=post,
+    )
+    assert "tools" in seen  # forwarded to the provider
+    assert reply.message["tool_calls"] == tc  # preserved on the reply
+    assert reply.text == ""
+
+
 def test_think_tags_stripped():
     post = make_post({"x.test": (200, openai_body("<think>secret reasoning</think>final answer"))})
     reply = C.call(

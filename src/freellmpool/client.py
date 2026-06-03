@@ -57,7 +57,7 @@ class HTTPResult:
 
 PostFn = Callable[[str, dict, dict, float], HTTPResult]
 
-_USER_AGENT = "freellmpool/0.3 (+https://github.com/0xzr/freellmpool)"
+_USER_AGENT = "freellmpool/0.4 (+https://github.com/0xzr/freellmpool)"
 
 
 def default_post(url: str, headers: dict, json_body: dict, timeout: float) -> HTTPResult:
@@ -115,6 +115,8 @@ def call(
     max_tokens: int = 1024,
     temperature: float = 0.0,
     timeout: float = 90.0,
+    tools: list | None = None,
+    tool_choice=None,
     post: PostFn = default_post,
 ) -> Reply:
     """Dispatch one completion to ``provider`` and normalize the response.
@@ -126,6 +128,10 @@ def call(
         # budget and return empty content.
         max_tokens = _THINKING_FLOOR
     if provider.adapter == "gemini":
+        # Gemini uses a different tool schema; skip tools for now (the router
+        # will fail over to an openai-shape provider that supports them).
+        if tools:
+            raise ProviderHTTPError(400, "gemini adapter does not support tools", retryable=True)
         return _call_gemini(
             provider,
             model,
@@ -146,6 +152,8 @@ def call(
         max_tokens=max_tokens,
         temperature=temperature,
         timeout=timeout,
+        tools=tools,
+        tool_choice=tool_choice,
         post=post,
     )
 
@@ -160,6 +168,8 @@ def _call_openai(
     max_tokens: int,
     temperature: float,
     timeout: float,
+    tools: list | None = None,
+    tool_choice=None,
     post: PostFn,
 ) -> Reply:
     base_url = provider.base_url
@@ -178,6 +188,10 @@ def _call_openai(
         "temperature": temperature,
         "stream": False,
     }
+    if tools:  # function/tool calling — passed through to providers that support it
+        body["tools"] = tools
+        if tool_choice is not None:
+            body["tool_choice"] = tool_choice
     result = post(url, headers, body, timeout)
     if result.status != 200:
         raise ProviderHTTPError(
@@ -197,6 +211,7 @@ def _call_openai(
         raw=result.body,
         prompt_tokens=usage.get("prompt_tokens"),
         completion_tokens=usage.get("completion_tokens"),
+        message=message if isinstance(message, dict) else None,
     )
 
 
