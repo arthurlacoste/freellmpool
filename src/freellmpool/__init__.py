@@ -1,22 +1,22 @@
-"""llmbuffet — pool free-tier LLM APIs behind one OpenAI-compatible endpoint.
+"""freellmpool — pool free-tier LLM APIs behind one OpenAI-compatible endpoint.
 
 Public API:
 
-    from llmbuffet import Buffet
+    from freellmpool import Pool
 
-    buffet = Buffet.from_default_config()
-    reply = buffet.ask("Explain CAP theorem in one sentence.")
+    pool = Pool.from_default_config()
+    reply = pool.ask("Explain CAP theorem in one sentence.")
     print(reply.text)
 """
 
 from .errors import AllProvidersExhausted, BuffetError, NoProvidersConfigured
 from .models import Model, Provider, Reply
-from .router import Buffet
+from .router import Pool
 
 __version__ = "0.2.0"
 
 __all__ = [
-    "Buffet",
+    "Pool",
     "Provider",
     "Model",
     "Reply",

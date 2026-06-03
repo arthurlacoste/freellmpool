@@ -1,4 +1,4 @@
-# Contributing to llmbuffet
+# Contributing to freellmpool
 
 Thanks for helping! The two highest-value contributions are **adding free
 providers** and **keeping the existing catalog accurate** as free tiers drift.
@@ -6,8 +6,8 @@ providers** and **keeping the existing catalog accurate** as free tiers drift.
 ## Dev setup
 
 ```bash
-git clone https://github.com/0xzr/llmbuffet
-cd llmbuffet
+git clone https://github.com/0xzr/freellmpool
+cd freellmpool
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest          # 0 network calls — everything is faked
@@ -16,7 +16,7 @@ ruff check src tests
 
 ## Adding a provider
 
-The whole catalog is [`src/llmbuffet/providers.toml`](src/llmbuffet/providers.toml).
+The whole catalog is [`src/freellmpool/providers.toml`](src/freellmpool/providers.toml).
 Most providers are OpenAI-compatible, so adding one is just a TOML block:
 
 ```toml
@@ -33,11 +33,11 @@ models = [
 
 Rules of thumb:
 
-- **Free tier only.** llmbuffet is about free pools. If a provider needs a card
+- **Free tier only.** freellmpool is about free pools. If a provider needs a card
   on file to use the tier, it doesn't belong in the default catalog.
 - **Never commit a key.** Only the *name* of the env var goes in the catalog.
 - If the provider isn't OpenAI-compatible, it needs a small adapter in
-  [`src/llmbuffet/client.py`](src/llmbuffet/client.py) (see the `gemini` one for
+  [`src/freellmpool/client.py`](src/freellmpool/client.py) (see the `gemini` one for
   a ~30-line template) and a unit test in `tests/`.
 - Add the env var to [`.env.example`](.env.example) and the signup steps to
   [`docs/ACCOUNTS.md`](docs/ACCOUNTS.md).

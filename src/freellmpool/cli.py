@@ -1,9 +1,9 @@
-"""Command-line interface for llmbuffet.
+"""Command-line interface for freellmpool.
 
-llmbuffet ask "question"        one-shot completion (reads stdin too)
-llmbuffet providers            list configured / available providers
-llmbuffet quota                show today's per-provider usage
-llmbuffet proxy                run the OpenAI-compatible proxy server
+freellmpool ask "question"        one-shot completion (reads stdin too)
+freellmpool providers            list configured / available providers
+freellmpool quota                show today's per-provider usage
+freellmpool proxy                run the OpenAI-compatible proxy server
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from . import __version__
 from .config import configured_providers, load_catalog
 from .errors import AllProvidersExhausted, NoProvidersConfigured
 from .quota import QuotaStore
-from .router import Buffet
+from .router import Pool
 
 
 def _read_stdin() -> str:
@@ -32,7 +32,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         prompt = f"{stdin}\n\n{prompt}".strip() if prompt else stdin
 
     if not prompt.strip():
-        print("llmbuffet: no prompt provided (pass text or pipe stdin)", file=sys.stderr)
+        print("freellmpool: no prompt provided (pass text or pipe stdin)", file=sys.stderr)
         return 3
 
     # Support `--model provider/model` as a shorthand for picking an exact
@@ -49,9 +49,9 @@ def cmd_ask(args: argparse.Namespace) -> int:
         json_rule = "Respond with a single valid JSON value and nothing else — no prose, no markdown fences."
         system = f"{system}\n{json_rule}" if system else json_rule
 
-    buffet = Buffet.from_default_config()
+    pool = Pool.from_default_config()
     try:
-        reply = buffet.ask(
+        reply = pool.ask(
             prompt,
             system=system,
             model=model_filter,
@@ -60,10 +60,10 @@ def cmd_ask(args: argparse.Namespace) -> int:
             temperature=args.temperature,
         )
     except NoProvidersConfigured as exc:
-        print(f"llmbuffet: {exc}", file=sys.stderr)
+        print(f"freellmpool: {exc}", file=sys.stderr)
         return 3
     except AllProvidersExhausted as exc:
-        print(f"llmbuffet: {exc}", file=sys.stderr)
+        print(f"freellmpool: {exc}", file=sys.stderr)
         return 4
 
     text = reply.text
@@ -89,7 +89,7 @@ def cmd_providers(args: argparse.Namespace) -> int:
     catalog = load_catalog()
     configured = {p.id for p in configured_providers(catalog)}
     n_models = sum(len(p.models) for p in catalog)
-    print(f"llmbuffet catalog: {len(catalog)} providers, {n_models} models\n")
+    print(f"freellmpool catalog: {len(catalog)} providers, {n_models} models\n")
     for p in catalog:
         mark = "✓" if p.id in configured else "·"
         status = "configured" if p.id in configured else f"set {p.key_env}"
@@ -116,11 +116,11 @@ def cmd_models(args: argparse.Namespace) -> int:
             shown += 1
             print(f"    {p.id}/{m.name}")
     if shown == 0:
-        print("No models match. Try `llmbuffet providers` to see configuration status.")
+        print("No models match. Try `freellmpool providers` to see configuration status.")
         return 0
     print(
         f"\nPass any id above to `--model`, e.g. "
-        f'`llmbuffet ask -m {catalog[0].id}/{catalog[0].models[0].name} "hi"`,'
+        f'`freellmpool ask -m {catalog[0].id}/{catalog[0].models[0].name} "hi"`,'
     )
     print("or just `--model <model-name>` to use that model on any provider that has it.")
     return 0
@@ -141,31 +141,31 @@ def cmd_quota(args: argparse.Namespace) -> int:
 def cmd_proxy(args: argparse.Namespace) -> int:
     from .proxy import serve  # lazy: avoids http.server import on other paths
 
-    buffet = Buffet.from_default_config()
-    if not buffet.providers:
+    pool = Pool.from_default_config()
+    if not pool.providers:
         print(
-            "llmbuffet: no providers configured; set at least one API key "
+            "freellmpool: no providers configured; set at least one API key "
             "(see .env.example) before starting the proxy.",
             file=sys.stderr,
         )
         return 3
 
-    proxy_key = args.api_key or os.environ.get("LLMBUFFET_PROXY_KEY") or None
+    proxy_key = args.api_key or os.environ.get("FREELLMPOOL_PROXY_KEY") or None
     loopback = args.host in {"127.0.0.1", "localhost", "::1"}
     if not loopback and not proxy_key:
         print(
-            f"llmbuffet: WARNING — binding to {args.host} (not loopback) with NO proxy key "
+            f"freellmpool: WARNING — binding to {args.host} (not loopback) with NO proxy key "
             "exposes all your configured providers to the network. Set --api-key or "
-            "LLMBUFFET_PROXY_KEY, or bind to 127.0.0.1.",
+            "FREELLMPOOL_PROXY_KEY, or bind to 127.0.0.1.",
             file=sys.stderr,
         )
 
-    httpd = serve(buffet, host=args.host, port=args.port, api_key=proxy_key)
-    n_models = sum(len(p.models) for p in buffet.providers)
+    httpd = serve(pool, host=args.host, port=args.port, api_key=proxy_key)
+    n_models = sum(len(p.models) for p in pool.providers)
     auth_note = "  auth: Bearer key required\n" if proxy_key else ""
     print(
-        f"llmbuffet proxy on http://{args.host}:{args.port}/v1  "
-        f"({len(buffet.providers)} providers, {n_models} models)\n"
+        f"freellmpool proxy on http://{args.host}:{args.port}/v1  "
+        f"({len(pool.providers)} providers, {n_models} models)\n"
         f"{auth_note}"
         f"  point your OpenAI client at:  OPENAI_BASE_URL=http://{args.host}:{args.port}/v1\n"
         "  press Ctrl-C to stop",
@@ -174,7 +174,7 @@ def cmd_proxy(args: argparse.Namespace) -> int:
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nllmbuffet: shutting down", file=sys.stderr)
+        print("\nfreellmpool: shutting down", file=sys.stderr)
     finally:
         httpd.server_close()
     return 0
@@ -182,10 +182,10 @@ def cmd_proxy(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="llmbuffet",
+        prog="freellmpool",
         description="Pool free-tier LLM APIs behind one OpenAI-compatible endpoint.",
     )
-    parser.add_argument("--version", action="version", version=f"llmbuffet {__version__}")
+    parser.add_argument("--version", action="version", version=f"freellmpool {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_ask = sub.add_parser("ask", help="one-shot completion")
@@ -222,7 +222,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_proxy.add_argument(
         "--api-key",
         default=None,
-        help="require this Bearer token on requests (or set LLMBUFFET_PROXY_KEY)",
+        help="require this Bearer token on requests (or set FREELLMPOOL_PROXY_KEY)",
     )
     p_proxy.set_defaults(func=cmd_proxy)
 

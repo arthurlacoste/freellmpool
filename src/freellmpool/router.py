@@ -1,6 +1,6 @@
-"""The Buffet: provider selection and failover.
+"""The Pool: provider selection and failover.
 
-A :class:`Buffet` holds the configured providers, a quota store, and the
+A :class:`Pool` holds the configured providers, a quota store, and the
 strategy for ordering candidate (provider, model) targets. :meth:`ask` walks
 that ordered list, calling each target until one succeeds, recording quota use
 and per-day budgets as it goes.
@@ -35,7 +35,7 @@ class Target:
         return f"{self.provider.id}/{self.model}"
 
 
-class Buffet:
+class Pool:
     def __init__(
         self,
         providers: list[Provider],
@@ -76,7 +76,7 @@ class Buffet:
         env: dict[str, str] | None = None,
         quota: QuotaStore | None = None,
         post: PostFn = default_post,
-    ) -> Buffet:
+    ) -> Pool:
         env = env if env is not None else dict(os.environ)
         providers = configured_providers(load_catalog(), env)
         return cls(providers, quota=quota, env=env, post=post)

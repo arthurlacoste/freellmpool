@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from llmbuffet.quota import QuotaStore
+from freellmpool.quota import QuotaStore
 
 
 def _store(tmp_path, day):

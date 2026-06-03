@@ -1,19 +1,19 @@
 # Getting your free API keys (step by step)
 
-`llmbuffet` is only as good as the free tiers you plug into it. The good news:
+`freellmpool` is only as good as the free tiers you plug into it. The good news:
 **every provider below is free and none require a credit card.** You don't need
 all of them — even **one** key gets you going. Start with Groq + Cerebras (the
 two fastest, most generous, and quickest to sign up for), then add more later.
 
-> **No keys at all?** llmbuffet still works: **OVHcloud** is keyless (anonymous)
-> and **LLM7** works without a key. So `llmbuffet ask "hi"` runs the moment you
+> **No keys at all?** freellmpool still works: **OVHcloud** is keyless (anonymous)
+> and **LLM7** works without a key. So `freellmpool ask "hi"` runs the moment you
 > install. The keys below just add more models, higher limits, and better
 > failover.
 
 Each key takes about a minute. Once you have one, either `export` it in your
 shell or put it in a `.env` file (copy [`.env.example`](../.env.example)).
 
-> Tip: run `llmbuffet providers` at any time to see which keys are detected.
+> Tip: run `freellmpool providers` at any time to see which keys are detected.
 
 ---
 
@@ -29,7 +29,7 @@ shell or put it in a `.env` file (copy [`.env.example`](../.env.example)).
 2. Open **API Keys** → **Generate key**, copy it (`csk-...`).
 3. `export CEREBRAS_API_KEY=csk-...`
 
-That's enough to start. Run `llmbuffet ask "hello"`.
+That's enough to start. Run `freellmpool ask "hello"`.
 
 ---
 
@@ -101,14 +101,14 @@ cp .env.example .env
 # edit .env, fill in the keys you have
 ```
 
-`llmbuffet` reads from the **environment**, so load the file however you like —
+`freellmpool` reads from the **environment**, so load the file however you like —
 e.g. `set -a; source .env; set +a`, or a tool like
 [`direnv`](https://direnv.net/).
 
 ## A note on free-tier limits
 
 Free tiers change. The per-day hints in
-[`providers.toml`](../src/llmbuffet/providers.toml) are conservative guesses
-used only to spread load; `llmbuffet` reacts to real `429` rate limits at call
+[`providers.toml`](../src/freellmpool/providers.toml) are conservative guesses
+used only to spread load; `freellmpool` reacts to real `429` rate limits at call
 time regardless. If a provider changes its limits, a one-line PR to
 `providers.toml` keeps everyone current — see [CONTRIBUTING.md](../CONTRIBUTING.md).

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from llmbuffet.client import HTTPResult
+from freellmpool.client import HTTPResult
 
 
 def openai_body(text: str) -> dict:

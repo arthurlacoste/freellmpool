@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from llmbuffet.config import configured_providers, load_catalog
+from freellmpool.config import configured_providers, load_catalog
 
 
 def test_packaged_catalog_loads():

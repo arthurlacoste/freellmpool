@@ -1,16 +1,16 @@
-# Using llmbuffet as the free LLM backend for AI agents
+# Using freellmpool as the free LLM backend for AI agents
 
 Most agent frameworks and coding agents speak the **OpenAI API**. Because
-`llmbuffet proxy` *is* an OpenAI-compatible endpoint, you can point them at it
+`freellmpool proxy` *is* an OpenAI-compatible endpoint, you can point them at it
 and they'll run on pooled free-tier inference — with failover when one provider
 rate-limits you mid-run (exactly when long agent loops tend to die).
 
 Start the gateway once:
 
 ```bash
-llmbuffet proxy --port 8080
+freellmpool proxy --port 8080
 export OPENAI_BASE_URL=http://localhost:8080/v1
-export OPENAI_API_KEY=anything   # ignored by llmbuffet
+export OPENAI_API_KEY=anything   # ignored by freellmpool
 ```
 
 Then wire up your tool of choice.
@@ -22,7 +22,7 @@ from openai import OpenAI
 
 client = OpenAI()  # reads OPENAI_BASE_URL + OPENAI_API_KEY
 resp = client.chat.completions.create(
-    model="auto",  # let llmbuffet pick the least-used free provider
+    model="auto",  # let freellmpool pick the least-used free provider
     messages=[{"role": "user", "content": "Plan a 3-step refactor of foo.py"}],
 )
 print(resp.choices[0].message.content)
@@ -71,5 +71,5 @@ print(llm.invoke("Summarize the singleton pattern in one line.").content)
 
 > Heads up: free-tier models are smaller/faster than frontier models. They're
 > great for triage, drafting, classification, and tool-routing steps; reach for
-> a frontier model for the hardest reasoning. `llmbuffet` is about making the
+> a frontier model for the hardest reasoning. `freellmpool` is about making the
 > cheap-and-plentiful path effortless, not replacing GPT-class models.

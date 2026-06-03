@@ -1,4 +1,4 @@
-# llmbuffet built-in provider catalog.
+# freellmpool built-in provider catalog.
 #
 # Keys are NEVER stored here — only the *name* of the environment variable that
 # holds the key. Users supply their own keys (see .env.example / docs/ACCOUNTS.md).
@@ -16,8 +16,8 @@
 #                used for quota tracking (0 = unknown/unmetered).
 #
 # rpd values are conservative public free-tier hints as of 2026 and drift over
-# time; llmbuffet treats them as soft budgets and reacts to real 429s at call
-# time. Override per-user in ~/.config/llmbuffet/providers.toml.
+# time; freellmpool treats them as soft budgets and reacts to real 429s at call
+# time. Override per-user in ~/.config/freellmpool/providers.toml.
 
 # ---- Keyless / zero-setup (works out of the box) ----------------------------
 # LLM7 first: it's the most reliable keyless pool. OVHcloud's anonymous tier is

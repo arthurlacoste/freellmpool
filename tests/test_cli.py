@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from llmbuffet.cli import _strip_fences
+from freellmpool.cli import _strip_fences
 
 
 def test_strip_plain_json():

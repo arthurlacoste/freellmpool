@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from helpers import make_post, openai_body
 
-from llmbuffet import client as C
-from llmbuffet.models import Model, Provider
+from freellmpool import client as C
+from freellmpool.models import Model, Provider
 
 P = Provider(
     id="x",

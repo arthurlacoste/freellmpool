@@ -1,10 +1,10 @@
-"""Exception hierarchy for llmbuffet."""
+"""Exception hierarchy for freellmpool."""
 
 from __future__ import annotations
 
 
 class BuffetError(Exception):
-    """Base class for all llmbuffet errors."""
+    """Base class for all freellmpool errors."""
 
 
 class NoProvidersConfigured(BuffetError):

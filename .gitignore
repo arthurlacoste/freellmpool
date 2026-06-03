@@ -22,8 +22,8 @@ htmlcov/
 !.env.example
 *.key
 **/api_key
-.llmbuffet/
-llmbuffet-state/
+.freellmpool/
+freellmpool-state/
 
 # Editor / OS
 .idea/

@@ -1,30 +1,30 @@
-# 🍽️ llmbuffet — one free LLM API gateway for every free tier
+# 🍽️ freellmpool — one free LLM API gateway for every free tier
 
 **A free, OpenAI-compatible LLM gateway that pools 15 free-tier providers (Groq, Cerebras, NVIDIA NIM, Gemini, OpenRouter, GitHub Models, Cloudflare & more) behind one endpoint — with automatic failover and quota tracking. Works out of the box with zero API keys.**
 
-[![PyPI](https://img.shields.io/pypi/v/llmbuffet.svg)](https://pypi.org/project/llmbuffet/)
-[![CI](https://github.com/0xzr/llmbuffet/actions/workflows/ci.yml/badge.svg)](https://github.com/0xzr/llmbuffet/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/freellmpool.svg)](https://pypi.org/project/freellmpool/)
+[![CI](https://github.com/0xzr/freellmpool/actions/workflows/ci.yml/badge.svg)](https://github.com/0xzr/freellmpool/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org)
 
-> Stop juggling a dozen free LLM SDKs and rate limits. Point your OpenAI client at `llmbuffet` and never pay for a hobby project's inference again.
+> Stop juggling a dozen free LLM SDKs and rate limits. Point your OpenAI client at `freellmpool` and never pay for a hobby project's inference again.
 
-Groq, Cerebras, Google Gemini, OpenRouter, GitHub Models, Cloudflare Workers AI, Mistral, Cohere, SambaNova — each hands out a generous **free tier**, but each has its own SDK, its own rate limits, and its own daily cap. `llmbuffet` puts all of them into one pool:
+Groq, Cerebras, Google Gemini, OpenRouter, GitHub Models, Cloudflare Workers AI, Mistral, Cohere, SambaNova — each hands out a generous **free tier**, but each has its own SDK, its own rate limits, and its own daily cap. `freellmpool` puts all of them into one pool:
 
-- 🔌 **One OpenAI-compatible endpoint.** Point any existing OpenAI SDK / tool at `llmbuffet` and it just works — no code changes.
-- 🔁 **Automatic failover.** Hit a rate limit or a 5xx on one provider? `llmbuffet` transparently moves to the next.
+- 🔌 **One OpenAI-compatible endpoint.** Point any existing OpenAI SDK / tool at `freellmpool` and it just works — no code changes.
+- 🔁 **Automatic failover.** Hit a rate limit or a 5xx on one provider? `freellmpool` transparently moves to the next.
 - 📊 **Quota-aware routing.** Spreads load least-used-first and respects each provider's free daily limit, so you squeeze the most out of every tier.
-- 🧩 **One catalog, your keys.** Drop in the keys you have; `llmbuffet` skips the rest. No key is ever stored in the repo.
+- 🧩 **One catalog, your keys.** Drop in the keys you have; `freellmpool` skips the rest. No key is ever stored in the repo.
 - 🪶 **Tiny.** Pure-Python, one dependency (`httpx`). The proxy runs on the standard library.
 
-> Why it exists: stitching together a dozen free LLM tiers by hand is fiddly and breaks constantly. `llmbuffet` makes "never pay for a hobby project's LLM calls again" a one-command setup.
+> Why it exists: stitching together a dozen free LLM tiers by hand is fiddly and breaks constantly. `freellmpool` makes "never pay for a hobby project's LLM calls again" a one-command setup.
 
 ---
 
 ## Install
 
 ```bash
-pip install llmbuffet      # or: pipx install llmbuffet
+pip install freellmpool      # or: pipx install freellmpool
 ```
 
 ## Zero-config: it works with no keys at all
@@ -32,8 +32,8 @@ pip install llmbuffet      # or: pipx install llmbuffet
 Two providers in the catalog need **no signup** (OVHcloud is keyless; LLM7's key is optional), so this works the moment you install:
 
 ```bash
-pip install llmbuffet
-llmbuffet ask "Explain the CAP theorem in one sentence."
+pip install freellmpool
+freellmpool ask "Explain the CAP theorem in one sentence."
 ```
 
 Add provider keys (below) to unlock more models, higher limits, and better failover.
@@ -62,23 +62,23 @@ Add provider keys (below) to unlock more models, higher limits, and better failo
 3. Ask something:
 
    ```bash
-   llmbuffet ask "Explain the CAP theorem in one sentence."
+   freellmpool ask "Explain the CAP theorem in one sentence."
    ```
 
    or pipe context in:
 
    ```bash
-   cat error.log | llmbuffet ask "What's the root cause here?"
+   cat error.log | freellmpool ask "What's the root cause here?"
    ```
 
 Check what's wired up:
 
 ```bash
-llmbuffet providers
+freellmpool providers
 ```
 
 ```
-llmbuffet catalog: 15 providers, 53 models
+freellmpool catalog: 15 providers, 53 models
 
   ✓ ovh          OVHcloud AI Endpoints (keyless)  5 models   [configured]
   ✓ llm7         LLM7 (key optional)           1 models   [configured]
@@ -90,13 +90,13 @@ llmbuffet catalog: 15 providers, 53 models
 
 ## Choosing a model or provider
 
-By default llmbuffet auto-picks the least-used provider you have. To pin a choice:
+By default freellmpool auto-picks the least-used provider you have. To pin a choice:
 
 ```bash
-llmbuffet models                       # list every provider/model id
-llmbuffet ask -m groq/llama-3.3-70b-versatile "hi"   # exact provider + model
-llmbuffet ask -m llama-3.3-70b-versatile "hi"        # that model on any provider
-llmbuffet ask -p cerebras,groq "hi"                  # restrict to these providers
+freellmpool models                       # list every provider/model id
+freellmpool ask -m groq/llama-3.3-70b-versatile "hi"   # exact provider + model
+freellmpool ask -m llama-3.3-70b-versatile "hi"        # that model on any provider
+freellmpool ask -p cerebras,groq "hi"                  # restrict to these providers
 ```
 
 Same idea through the proxy via the OpenAI `model` field: `"auto"`, `"groq"`, or `"groq/llama-3.3-70b-versatile"`.
@@ -128,14 +128,14 @@ Full signup steps for each: **[docs/ACCOUNTS.md](docs/ACCOUNTS.md)**.
 Run the gateway:
 
 ```bash
-llmbuffet proxy --port 8080
+freellmpool proxy --port 8080
 ```
 
 Now point **any** OpenAI-compatible app or SDK at it — no other changes:
 
 ```bash
 export OPENAI_BASE_URL=http://localhost:8080/v1
-export OPENAI_API_KEY=anything        # llmbuffet ignores it
+export OPENAI_API_KEY=anything        # freellmpool ignores it
 ```
 
 ```python
@@ -160,10 +160,10 @@ The `model` field controls routing:
 
 ## Use it as the free LLM backend for your AI agent
 
-Coding agents and agent frameworks (aider, Continue, Cline, the OpenAI Agents SDK, LangChain, ...) almost all speak the OpenAI API — so they can run on pooled free inference through `llmbuffet`, with **failover when one provider rate-limits you mid-run** (exactly when long agent loops tend to die):
+Coding agents and agent frameworks (aider, Continue, Cline, the OpenAI Agents SDK, LangChain, ...) almost all speak the OpenAI API — so they can run on pooled free inference through `freellmpool`, with **failover when one provider rate-limits you mid-run** (exactly when long agent loops tend to die):
 
 ```bash
-llmbuffet proxy --port 8080
+freellmpool proxy --port 8080
 export OPENAI_BASE_URL=http://localhost:8080/v1 OPENAI_API_KEY=anything
 aider --model openai/auto          # or point any OpenAI-compatible tool here
 ```
@@ -173,25 +173,25 @@ The proxy supports `stream: true` (Server-Sent Events), so streaming chat UIs an
 ## Use it as a library
 
 ```python
-from llmbuffet import Buffet
+from freellmpool import Pool
 
-buffet = Buffet.from_default_config()
-reply = buffet.ask("Summarize the plot of Hamlet in 20 words.")
+pool = Pool.from_default_config()
+reply = pool.ask("Summarize the plot of Hamlet in 20 words.")
 print(reply.text)
 print(f"served by {reply.provider_id}/{reply.model}")
 ```
 
 ## How routing works
 
-For each request `llmbuffet` builds the list of `(provider, model)` candidates you have keys for, orders them **least-used-today first** (providers already over their free daily hint sink to the bottom), then tries them in order until one returns a non-empty completion. Every success is recorded to a small per-day counter at `~/.config/llmbuffet/quota.json` (reset at UTC midnight). See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full picture.
+For each request `freellmpool` builds the list of `(provider, model)` candidates you have keys for, orders them **least-used-today first** (providers already over their free daily hint sink to the bottom), then tries them in order until one returns a non-empty completion. Every success is recorded to a small per-day counter at `~/.config/freellmpool/quota.json` (reset at UTC midnight). See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full picture.
 
 ## Adding or overriding providers
 
-The built-in catalog lives in [`src/llmbuffet/providers.toml`](src/llmbuffet/providers.toml). To add a provider or override a model list without forking, drop a `providers.toml` at `~/.config/llmbuffet/providers.toml` (or point `LLMBUFFET_CONFIG` at one). Same-`id` entries override the built-ins; new ids are appended. See [CONTRIBUTING.md](CONTRIBUTING.md) for the (small) anatomy of a provider.
+The built-in catalog lives in [`src/freellmpool/providers.toml`](src/freellmpool/providers.toml). To add a provider or override a model list without forking, drop a `providers.toml` at `~/.config/freellmpool/providers.toml` (or point `FREELLMPOOL_CONFIG` at one). Same-`id` entries override the built-ins; new ids are appended. See [CONTRIBUTING.md](CONTRIBUTING.md) for the (small) anatomy of a provider.
 
 ## Comparison
 
-| | llmbuffet | Calling each SDK by hand | A paid gateway |
+| | freellmpool | Calling each SDK by hand | A paid gateway |
 |---|---|---|---|
 | Free tiers pooled | ✅ 15 providers | ⚠️ you wire each one | ❌ |
 | Automatic failover | ✅ | ❌ | ✅ |
@@ -202,11 +202,11 @@ The built-in catalog lives in [`src/llmbuffet/providers.toml`](src/llmbuffet/pro
 
 ## Status
 
-`llmbuffet` is `0.1` and moving fast. Provider endpoints and free-tier limits drift — if something breaks, please [open an issue](https://github.com/0xzr/llmbuffet/issues) or send a one-line PR to `providers.toml`. Contributions of new free providers are especially welcome.
+`freellmpool` is `0.1` and moving fast. Provider endpoints and free-tier limits drift — if something breaks, please [open an issue](https://github.com/0xzr/freellmpool/issues) or send a one-line PR to `providers.toml`. Contributions of new free providers are especially welcome.
 
 ## Found this useful?
 
-⭐ **Star the repo** — it's the single biggest thing that helps others discover llmbuffet, and it keeps the free-provider catalog maintained. New free providers and one-line limit fixes are always welcome ([CONTRIBUTING.md](CONTRIBUTING.md)).
+⭐ **Star the repo** — it's the single biggest thing that helps others discover freellmpool, and it keeps the free-provider catalog maintained. New free providers and one-line limit fixes are always welcome ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## License
 

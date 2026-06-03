@@ -3,8 +3,8 @@
 Resolution order for the provider catalog:
 
 1. The packaged ``providers.toml`` (the built-in catalog).
-2. A user catalog at ``$LLMBUFFET_CONFIG`` or
-   ``~/.config/llmbuffet/providers.toml`` if present. Providers with the same
+2. A user catalog at ``$FREELLMPOOL_CONFIG`` or
+   ``~/.config/freellmpool/providers.toml`` if present. Providers with the same
    ``id`` override the built-ins; new ids are appended.
 
 Only providers whose API key (and any extra env vars) are present in the
@@ -23,10 +23,10 @@ _PACKAGED_CATALOG = Path(__file__).with_name("providers.toml")
 
 
 def _user_catalog_path() -> Path | None:
-    override = os.environ.get("LLMBUFFET_CONFIG")
+    override = os.environ.get("FREELLMPOOL_CONFIG")
     if override:
         return Path(override).expanduser()
-    default = Path.home() / ".config" / "llmbuffet" / "providers.toml"
+    default = Path.home() / ".config" / "freellmpool" / "providers.toml"
     return default if default.exists() else None
 
 

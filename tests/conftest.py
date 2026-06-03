@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from llmbuffet.models import Model, Provider
-from llmbuffet.quota import QuotaStore
+from freellmpool.models import Model, Provider
+from freellmpool.quota import QuotaStore
 
 
 @pytest.fixture

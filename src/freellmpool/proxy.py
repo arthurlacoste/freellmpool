@@ -1,14 +1,14 @@
-"""A tiny OpenAI-compatible HTTP proxy backed by the Buffet.
+"""A tiny OpenAI-compatible HTTP proxy backed by the Pool.
 
 Run it, point any OpenAI-SDK app at it, and your existing code transparently
 load-balances and fails over across every free provider you have keys for:
 
-    $ llmbuffet proxy --port 8080
+    $ freellmpool proxy --port 8080
     $ export OPENAI_BASE_URL=http://localhost:8080/v1
-    $ export OPENAI_API_KEY=anything   # ignored by llmbuffet
+    $ export OPENAI_API_KEY=anything   # ignored by freellmpool
 
 Implemented on the standard library only (``http.server``) so installing
-llmbuffet pulls in nothing beyond httpx.
+freellmpool pulls in nothing beyond httpx.
 
 Supported routes:
     GET  /v1/models                 list available (provider/model) ids
@@ -23,20 +23,20 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .errors import AllProvidersExhausted, BuffetError, NoProvidersConfigured
-from .router import Buffet
+from .router import Pool
 
 
-def _model_ids(buffet: Buffet) -> list[str]:
+def _model_ids(pool: Pool) -> list[str]:
     ids = ["auto"]
-    for provider in buffet.providers:
+    for provider in pool.providers:
         for m in provider.models:
             ids.append(f"{provider.id}/{m.name}")
     return ids
 
 
-def make_handler(buffet: Buffet, api_key: str | None = None):
+def make_handler(pool: Pool, api_key: str | None = None):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "llmbuffet/0.2"
+        server_version = "freellmpool/0.2"
 
         # quiet by default; the server prints its own concise log line
         def log_message(self, format, *args):  # noqa: A002
@@ -50,7 +50,7 @@ def make_handler(buffet: Buffet, api_key: str | None = None):
             self.end_headers()
             self.wfile.write(data)
 
-        def _error(self, status: int, message: str, code: str = "llmbuffet_error") -> None:
+        def _error(self, status: int, message: str, code: str = "freellmpool_error") -> None:
             self._send(status, {"error": {"message": message, "type": code}})
 
         def _authorized(self) -> bool:
@@ -78,8 +78,8 @@ def make_handler(buffet: Buffet, api_key: str | None = None):
                 return
             if self.path.rstrip("/").endswith("/v1/models") or self.path.rstrip("/") == "/models":
                 data = [
-                    {"id": mid, "object": "model", "owned_by": "llmbuffet"}
-                    for mid in _model_ids(buffet)
+                    {"id": mid, "object": "model", "owned_by": "freellmpool"}
+                    for mid in _model_ids(pool)
                 ]
                 self._send(200, {"object": "list", "data": data})
                 return
@@ -122,7 +122,7 @@ def make_handler(buffet: Buffet, api_key: str | None = None):
                 self._error(400, "'model' must be a string", "invalid_request_error")
                 return
             provider_filter, model_filter = _parse_model(
-                requested, {p.id for p in buffet.providers}
+                requested, {p.id for p in pool.providers}
             )
             try:
                 max_tokens = int(req.get("max_tokens") or 1024)
@@ -135,7 +135,7 @@ def make_handler(buffet: Buffet, api_key: str | None = None):
                 return
 
             try:
-                reply = buffet.chat(
+                reply = pool.chat(
                     [
                         {"role": str(m.get("role", "user")), "content": _content(m)}
                         for m in messages
@@ -152,7 +152,7 @@ def make_handler(buffet: Buffet, api_key: str | None = None):
                 self._error(502, str(exc), "all_providers_exhausted")
                 return
             except BuffetError as exc:  # pragma: no cover - defensive
-                self._error(500, str(exc), "llmbuffet_error")
+                self._error(500, str(exc), "freellmpool_error")
                 return
 
             if req.get("stream"):
@@ -163,7 +163,7 @@ def make_handler(buffet: Buffet, api_key: str | None = None):
         def _send_sse(self, reply) -> None:
             """Emit the completion as an OpenAI-style SSE stream.
 
-            This is a *buffered* stream: llmbuffet resolves the full completion
+            This is a *buffered* stream: freellmpool resolves the full completion
             (with failover) first, then frames it as Server-Sent Events so that
             clients which require ``stream: true`` work unchanged.
             """
@@ -213,7 +213,7 @@ def _content(message: dict) -> str:
 
 def _to_openai_response(reply) -> dict:
     return {
-        "id": f"chatcmpl-llmbuffet-{reply.provider_id}",
+        "id": f"chatcmpl-freellmpool-{reply.provider_id}",
         "object": "chat.completion",
         "model": f"{reply.provider_id}/{reply.model}",
         "choices": [
@@ -228,13 +228,13 @@ def _to_openai_response(reply) -> dict:
             "completion_tokens": reply.completion_tokens or 0,
             "total_tokens": (reply.prompt_tokens or 0) + (reply.completion_tokens or 0),
         },
-        "x_llmbuffet": {"provider": reply.provider_id, "model": reply.model},
+        "x_freellmpool": {"provider": reply.provider_id, "model": reply.model},
     }
 
 
 def _sse_chunks(reply):
     """Yield OpenAI chat.completion.chunk dicts for a finished reply."""
-    cid = f"chatcmpl-llmbuffet-{reply.provider_id}"
+    cid = f"chatcmpl-freellmpool-{reply.provider_id}"
     model = f"{reply.provider_id}/{reply.model}"
     base = {"id": cid, "object": "chat.completion.chunk", "model": model}
     # role delta, then the content as one delta, then a stop chunk.
@@ -247,15 +247,15 @@ def _sse_chunks(reply):
 
 
 def serve(
-    buffet: Buffet,
+    pool: Pool,
     host: str = "127.0.0.1",
     port: int = 8080,
     api_key: str | None = None,
 ) -> ThreadingHTTPServer:
-    """Build the proxy server. If ``api_key`` is set (or ``LLMBUFFET_PROXY_KEY``
+    """Build the proxy server. If ``api_key`` is set (or ``FREELLMPOOL_PROXY_KEY``
     is in the environment), POSTs must present ``Authorization: Bearer <key>``."""
     if api_key is None:
-        api_key = os.environ.get("LLMBUFFET_PROXY_KEY") or None
-    handler = make_handler(buffet, api_key)
+        api_key = os.environ.get("FREELLMPOOL_PROXY_KEY") or None
+    handler = make_handler(pool, api_key)
     httpd = ThreadingHTTPServer((host, port), handler)
     return httpd

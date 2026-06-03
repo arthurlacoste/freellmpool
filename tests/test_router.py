@@ -5,14 +5,14 @@ from __future__ import annotations
 import pytest
 from helpers import gemini_body, make_post, openai_body
 
-from llmbuffet.errors import AllProvidersExhausted, NoProvidersConfigured
-from llmbuffet.router import Buffet
+from freellmpool.errors import AllProvidersExhausted, NoProvidersConfigured
+from freellmpool.router import Pool
 
 
 def test_ask_returns_first_success(providers, env, quota):
     post = make_post({})  # everything returns 200 "ok"
-    buffet = Buffet(providers, quota=quota, env=env, post=post)
-    reply = buffet.ask("hello")
+    pool = Pool(providers, quota=quota, env=env, post=post)
+    reply = pool.ask("hello")
     assert reply.text == "ok"
     assert len(post.calls) == 1  # stopped at the first success
 
@@ -24,8 +24,8 @@ def test_failover_skips_429(providers, env, quota):
             "beta.test": (200, openai_body("from beta")),
         }
     )
-    buffet = Buffet(providers, quota=quota, env=env, post=post)
-    reply = buffet.ask("hello", providers=["alpha", "beta"])
+    pool = Pool(providers, quota=quota, env=env, post=post)
+    reply = pool.ask("hello", providers=["alpha", "beta"])
     assert reply.text == "from beta"
     assert reply.provider_id == "beta"
     # alpha-small 429s → alpha's other model is skipped this request → beta wins.
@@ -42,25 +42,25 @@ def test_all_exhausted_raises(providers, env, quota):
             "free.test": (500, {}),
         }
     )
-    buffet = Buffet(providers, quota=quota, env=env, post=post)
+    pool = Pool(providers, quota=quota, env=env, post=post)
     with pytest.raises(AllProvidersExhausted) as exc:
-        buffet.ask("hello")
+        pool.ask("hello")
     assert exc.value.attempts  # every target recorded a reason
 
 
 def test_no_providers_configured():
-    buffet = Buffet([], env={})
+    pool = Pool([], env={})
     with pytest.raises(NoProvidersConfigured):
-        buffet.ask("hello")
+        pool.ask("hello")
 
 
 def test_least_used_first_ordering(providers, env, quota):
     post = make_post({})
-    buffet = Buffet(providers, quota=quota, env=env, post=post)
+    pool = Pool(providers, quota=quota, env=env, post=post)
     # Pre-load alpha usage so beta should be picked first.
     quota.record("alpha", "alpha-small", 5)
     quota.record("alpha", "alpha-big", 5)
-    reply = buffet.ask("hello")
+    reply = pool.ask("hello")
     assert reply.provider_id != "alpha"  # not the heavily-used alpha
 
 
@@ -68,8 +68,8 @@ def test_over_budget_sinks_to_back(providers, env, quota):
     # alpha-small has rpd=2; record 2 so it is over budget and other models win.
     quota.record("alpha", "alpha-small", 2)
     post = make_post({})
-    buffet = Buffet(providers, quota=quota, env=env, post=post)
-    reply = buffet.ask("hi", model="alpha-small", providers=["alpha"])
+    pool = Pool(providers, quota=quota, env=env, post=post)
+    reply = pool.ask("hi", model="alpha-small", providers=["alpha"])
     # only candidate is the over-budget one → still served (best-effort), recorded 3rd
     assert reply.text == "ok"
     assert quota.used("alpha", "alpha-small") == 3
@@ -77,15 +77,15 @@ def test_over_budget_sinks_to_back(providers, env, quota):
 
 def test_model_filter(providers, env, quota):
     post = make_post({})
-    buffet = Buffet(providers, quota=quota, env=env, post=post)
-    buffet.ask("hi", model="beta-1")
+    pool = Pool(providers, quota=quota, env=env, post=post)
+    pool.ask("hi", model="beta-1")
     assert all("beta.test" in c["url"] for c in post.calls)
 
 
 def test_gemini_adapter_shape(providers, env, quota):
     post = make_post({"gee.test": (200, gemini_body("hi from gemini"))})
-    buffet = Buffet(providers, quota=quota, env=env, post=post)
-    reply = buffet.ask("hello", system="be terse", providers=["gee"])
+    pool = Pool(providers, quota=quota, env=env, post=post)
+    reply = pool.ask("hello", system="be terse", providers=["gee"])
     assert reply.text == "hi from gemini"
     body = post.calls[0]["body"]
     assert "contents" in body and "systemInstruction" in body  # gemini shape
@@ -95,8 +95,8 @@ def test_gemini_adapter_shape(providers, env, quota):
 def test_keyless_provider_sends_no_auth_header(providers, env, quota):
     post = make_post({"free.test": (200, openai_body("free!"))})
     # empty env: only the keyless provider is usable
-    buffet = Buffet(providers, quota=quota, env={}, post=post)
-    reply = buffet.ask("hello", providers=["free"])
+    pool = Pool(providers, quota=quota, env={}, post=post)
+    reply = pool.ask("hello", providers=["free"])
     assert reply.text == "free!"
     assert reply.provider_id == "free"
     assert "Authorization" not in post.calls[0]["headers"]
@@ -109,31 +109,31 @@ def test_429_triggers_cooldown(providers, env, quota):
             "beta.test": (200, openai_body("beta")),
         }
     )
-    buffet = Buffet(
+    pool = Pool(
         providers, quota=quota, env=env, post=post, cooldown_seconds=60.0, clock=lambda: 100.0
     )
-    r1 = buffet.ask("hi", providers=["alpha", "beta"])
+    r1 = pool.ask("hi", providers=["alpha", "beta"])
     assert r1.provider_id == "beta"
-    assert buffet._cooldown_until["alpha"] == 160.0  # 100 + 60s cooldown
+    assert pool._cooldown_until["alpha"] == 160.0  # 100 + 60s cooldown
 
 
 def test_cooldown_deprioritizes_within_window(providers, env, quota):
     post = make_post({"alpha.test": (429, {}), "beta.test": (200, openai_body("beta"))})
-    buffet = Buffet(
+    pool = Pool(
         providers, quota=quota, env=env, post=post, cooldown_seconds=60.0, clock=lambda: 20.0
     )
-    buffet.ask("hi", providers=["alpha", "beta"])  # alpha 429 → cooled until t=80
+    pool.ask("hi", providers=["alpha", "beta"])  # alpha 429 → cooled until t=80
     # at t=20 alpha is still cooling; even though it's now usable + least-used,
     # beta is tried first because alpha is in its cooldown window.
-    buffet._post = make_post(
+    pool._post = make_post(
         {"alpha.test": (200, openai_body("alpha")), "beta.test": (200, openai_body("beta"))}
     )
-    r2 = buffet.ask("hi", providers=["alpha", "beta"])
+    r2 = pool.ask("hi", providers=["alpha", "beta"])
     assert r2.provider_id == "beta"  # alpha deprioritized despite being usable now
 
 
 def test_empty_completion_is_failure(providers, env, quota):
     post = make_post({"alpha.test": (200, openai_body("")), "beta.test": (200, openai_body("x"))})
-    buffet = Buffet(providers, quota=quota, env=env, post=post)
-    reply = buffet.ask("hi", providers=["alpha", "beta"])
+    pool = Pool(providers, quota=quota, env=env, post=post)
+    reply = pool.ask("hi", providers=["alpha", "beta"])
     assert reply.provider_id == "beta"  # empty alpha skipped

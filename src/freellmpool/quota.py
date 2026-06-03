@@ -1,7 +1,7 @@
 """Persistent, per-provider/model/day request counters.
 
-Counters live in a JSON file (default ``~/.config/llmbuffet/quota.json``) and
-reset at UTC midnight. They are advisory: llmbuffet uses them to spread load
+Counters live in a JSON file (default ``~/.config/freellmpool/quota.json``) and
+reset at UTC midnight. They are advisory: freellmpool uses them to spread load
 and to skip providers that have hit their free-tier daily hint, but it never
 guarantees a provider's real server-side limit.
 
@@ -25,10 +25,10 @@ def _utc_day(now: datetime | None = None) -> str:
 
 
 def default_quota_path() -> Path:
-    override = os.environ.get("LLMBUFFET_QUOTA_PATH")
+    override = os.environ.get("FREELLMPOOL_QUOTA_PATH")
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".config" / "llmbuffet" / "quota.json"
+    return Path.home() / ".config" / "freellmpool" / "quota.json"
 
 
 class QuotaStore:

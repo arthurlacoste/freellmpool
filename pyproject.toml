@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "llmbuffet"
+name = "freellmpool"
 version = "0.2.0"
-description = "An all-you-can-eat buffet of free-tier LLM APIs behind one OpenAI-compatible endpoint, with automatic failover and quota tracking."
+description = "Pool the free tiers of 15+ LLM providers behind one OpenAI-compatible endpoint. Free, zero-config, with automatic failover and quota tracking."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -40,9 +40,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/0xzr/llmbuffet"
-Repository = "https://github.com/0xzr/llmbuffet"
-Issues = "https://github.com/0xzr/llmbuffet/issues"
+Homepage = "https://github.com/0xzr/freellmpool"
+Repository = "https://github.com/0xzr/freellmpool"
+Issues = "https://github.com/0xzr/freellmpool/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -51,14 +51,14 @@ dev = [
 ]
 
 [project.scripts]
-llmbuffet = "llmbuffet.cli:main"
-buffet = "llmbuffet.cli:main"
+freellmpool = "freellmpool.cli:main"
+ffp = "freellmpool.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/llmbuffet"]
+packages = ["src/freellmpool"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/llmbuffet/providers.toml" = "llmbuffet/providers.toml"
+"src/freellmpool/providers.toml" = "freellmpool/providers.toml"
 
 [tool.ruff]
 line-length = 100

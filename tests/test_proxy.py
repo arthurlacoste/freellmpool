@@ -10,15 +10,15 @@ import urllib.request
 import pytest
 from helpers import make_post
 
-from llmbuffet.proxy import _parse_model, serve
-from llmbuffet.router import Buffet
+from freellmpool.proxy import _parse_model, serve
+from freellmpool.router import Pool
 
 
 @pytest.fixture
 def server(providers, env, quota):
     post = make_post({})
-    buffet = Buffet(providers, quota=quota, env=env, post=post)
-    httpd = serve(buffet, host="127.0.0.1", port=0)  # port 0 = ephemeral
+    pool = Pool(providers, quota=quota, env=env, post=post)
+    httpd = serve(pool, host="127.0.0.1", port=0)  # port 0 = ephemeral
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     port = httpd.server_address[1]
@@ -43,7 +43,7 @@ def test_chat_completions_shape(server):
     assert status == 200
     assert body["object"] == "chat.completion"
     assert body["choices"][0]["message"]["content"] == "ok"
-    assert "x_llmbuffet" in body
+    assert "x_freellmpool" in body
 
 
 def test_models_route(server):
@@ -132,10 +132,10 @@ def test_malformed_body_returns_400_not_crash(server):
 
 
 def test_proxy_auth(providers, env, quota):
-    from llmbuffet.proxy import serve
+    from freellmpool.proxy import serve
 
-    buffet = Buffet(providers, quota=quota, env=env, post=make_post({}))
-    httpd = serve(buffet, host="127.0.0.1", port=0, api_key="secret")
+    pool = Pool(providers, quota=quota, env=env, post=make_post({}))
+    httpd = serve(pool, host="127.0.0.1", port=0, api_key="secret")
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
