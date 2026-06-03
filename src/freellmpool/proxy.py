@@ -27,7 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .anthropic_shim import estimate_tokens, reply_to_message, reply_to_sse, request_to_chat
 from .config import resolve_alias
-from .errors import AllProvidersExhausted, BuffetError, NoProvidersConfigured
+from .errors import AllProvidersExhausted, FreeLLMPoolError, NoProvidersConfigured
 from .router import Pool
 
 _MAX_BODY = 16 * 1024 * 1024  # 16 MB cap on request bodies
@@ -45,6 +45,9 @@ def _model_ids(pool: Pool) -> list[str]:
 def make_handler(pool: Pool, api_key: str | None = None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "freellmpool/0.10"
+        # Socket read timeout: a slow/stalled client can't pin a worker thread + fd
+        # indefinitely. setup() applies this to the connection via settimeout().
+        timeout = 75
 
         # quiet by default; the server prints its own concise log line
         def log_message(self, format, *args):  # noqa: A002
@@ -65,6 +68,11 @@ def make_handler(pool: Pool, api_key: str | None = None):
 
         def _error(self, status: int, message: str, code: str = "freellmpool_error") -> None:
             self._send(status, {"error": {"message": message, "type": code}})
+
+        def _anthropic_error(self, status: int, message: str, code: str = "invalid_request_error"):
+            # Anthropic's error envelope differs from OpenAI's; Claude-side clients
+            # expect {"type":"error","error":{"type":..,"message":..}}.
+            self._send(status, {"type": "error", "error": {"type": code, "message": message}})
 
         def _authorized(self) -> bool:
             """If a proxy key is configured, require a matching Bearer token
@@ -161,7 +169,13 @@ def make_handler(pool: Pool, api_key: str | None = None):
 
         def _handle_messages(self, req: dict) -> None:
             """Anthropic Messages API shim — lets Claude Code & friends use free models."""
+            if not isinstance(req.get("messages"), list) or not req["messages"]:
+                self._anthropic_error(400, "'messages' must be a non-empty array")
+                return
             chat = request_to_chat(req)
+            if not chat["messages"]:
+                self._anthropic_error(400, "no usable message content in request")
+                return
             display_model = req.get("model") or "auto"
             resolved = resolve_alias(str(chat["model"]), pool.env)
             provider_filter, model_filter = _parse_model(resolved, {p.id for p in pool.providers})
@@ -176,10 +190,10 @@ def make_handler(pool: Pool, api_key: str | None = None):
                     tool_choice=chat["tool_choice"],
                 )
             except NoProvidersConfigured as exc:
-                self._error(503, str(exc), "no_providers")
+                self._anthropic_error(503, str(exc), "no_providers")
                 return
             except AllProvidersExhausted as exc:
-                self._error(502, str(exc), "all_providers_exhausted")
+                self._anthropic_error(502, str(exc), "all_providers_exhausted")
                 return
             if req.get("stream"):
                 self._send_sse(reply_to_sse(reply, display_model))
@@ -201,17 +215,14 @@ def make_handler(pool: Pool, api_key: str | None = None):
                 self._error(400, "'input' is required", "invalid_request_error")
                 return
             requested = req.get("model")
-            # "auto"/empty/provider-prefixed → let the pool pick any embedder
-            if (
-                isinstance(requested, str)
-                and requested not in ("", "auto")
-                and "/" not in requested
-            ):
-                model = requested
-            else:
-                model = None
+            # Resolve "auto" / "provider" / "provider/model" / bare model against
+            # the embedder providers, so a pinned embedder id is honored.
+            provider_filter = None
+            model = None
+            if isinstance(requested, str) and requested not in ("", "auto"):
+                provider_filter, model = _parse_model(requested, {p.id for p in pool.embedders})
             try:
-                reply = pool.embed(inputs, model=model)
+                reply = pool.embed(inputs, model=model, providers=provider_filter)
             except NoProvidersConfigured as exc:
                 self._error(503, str(exc), "no_providers")
                 return
@@ -252,7 +263,7 @@ def make_handler(pool: Pool, api_key: str | None = None):
                 self._error(503, str(exc), "no_providers")
             except AllProvidersExhausted as exc:
                 self._error(502, str(exc), "all_providers_exhausted")
-            except BuffetError as exc:  # pragma: no cover - defensive
+            except FreeLLMPoolError as exc:  # pragma: no cover - defensive
                 self._error(500, str(exc), "freellmpool_error")
             return None
 
@@ -332,6 +343,16 @@ def make_handler(pool: Pool, api_key: str | None = None):
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):  # pragma: no cover
                 pass  # client disconnected
+            except Exception:  # noqa: BLE001
+                # Upstream failed mid-stream. Headers are already sent, so we can't
+                # send a JSON error — close the SSE stream cleanly instead of letting
+                # do_POST attempt a 500 into the open event-stream.
+                try:
+                    self.wfile.write(_chunk_block(cid, model_id, finish="stop").encode())
+                    self.wfile.write(b"data: [DONE]\n\n")
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
             finally:
                 gen.close()  # release the upstream stream even on early disconnect
 
@@ -404,6 +425,8 @@ def _content(message: dict) -> str:
         return content
     if isinstance(content, list):
         return "".join(part.get("text", "") for part in content if isinstance(part, dict))
+    if content is None:
+        return ""  # OpenAI uses content: null for assistant tool-call turns
     return str(content)
 
 
@@ -566,10 +589,15 @@ def _chunk_block(cid: str, model_id: str, *, role=None, content=None, finish=Non
 
 
 def _sse_chunks(reply):
-    """Yield OpenAI chat.completion.chunk SSE blocks for a finished reply."""
+    """Yield OpenAI chat.completion.chunk SSE blocks for a finished reply.
+
+    Carries tool_calls (and the ``tool_calls`` finish_reason) when present, so a
+    streaming request that asked for tools doesn't silently lose them.
+    """
     cid = f"chatcmpl-freellmpool-{reply.provider_id}"
     model = f"{reply.provider_id}/{reply.model}"
     base = {"id": cid, "object": "chat.completion.chunk", "model": model}
+    tool_calls = reply.message.get("tool_calls") if reply.message else None
 
     def block(chunk):
         return f"data: {json.dumps(chunk)}\n\n"
@@ -577,10 +605,24 @@ def _sse_chunks(reply):
     yield block(
         {**base, "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]}
     )
-    yield block(
-        {**base, "choices": [{"index": 0, "delta": {"content": reply.text}, "finish_reason": None}]}
-    )
-    yield block({**base, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+    if reply.text:
+        yield block(
+            {
+                **base,
+                "choices": [{"index": 0, "delta": {"content": reply.text}, "finish_reason": None}],
+            }
+        )
+    if tool_calls:
+        # OpenAI streaming deltas require a per-call `index` on each tool_call.
+        indexed = [{**tc, "index": i} for i, tc in enumerate(tool_calls)]
+        yield block(
+            {
+                **base,
+                "choices": [{"index": 0, "delta": {"tool_calls": indexed}, "finish_reason": None}],
+            }
+        )
+    finish = "tool_calls" if tool_calls else "stop"
+    yield block({**base, "choices": [{"index": 0, "delta": {}, "finish_reason": finish}]})
     yield "data: [DONE]\n\n"
 
 
@@ -670,4 +712,7 @@ def serve(
         api_key = os.environ.get("FREELLMPOOL_PROXY_KEY") or None
     handler = make_handler(pool, api_key)
     httpd = ThreadingHTTPServer((host, port), handler)
+    # Worker threads are daemons so a stuck request can't block process/server
+    # shutdown (Ctrl-C, container stop).
+    httpd.daemon_threads = True
     return httpd

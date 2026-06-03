@@ -4,6 +4,41 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.1] — 2026-06-03
+
+A full-project review (Codex + a manual pass), reconciled to consensus, plus the
+last of the rename.
+
+### Changed
+- Renamed the base exception `BuffetError` → `FreeLLMPoolError` (the last vestige
+  of the old `llmbuffet` name). `BuffetError` stays as a deprecated alias for now.
+
+### Fixed
+- **Proxy resource safety.** Request sockets now have a read timeout (75s) and
+  worker threads are daemons, so a slow/stalled client can't pin a thread+fd or
+  block shutdown.
+- **Streaming + tools no longer drops `tool_calls`.** A `stream:true` request
+  that asked for tools now emits the tool calls (each with the per-call `index`
+  OpenAI streaming requires) and a `tool_calls` finish reason instead of
+  silently returning an empty `stop`.
+- **Mid-stream upstream errors** no longer try to write a JSON 500 into an open
+  SSE response; the event stream is closed cleanly.
+- **`content: null`** on assistant tool-call turns is no longer stringified to
+  the literal `"None"`, which had corrupted multi-turn tool history.
+- **Embeddings** honor a pinned `provider/model` (or `provider`) id instead of
+  ignoring any model containing `/`.
+- **Anthropic `/v1/messages`** validates the request and returns an
+  Anthropic-shaped error envelope (not an OpenAI one) on bad input.
+- **Quota counters are cross-process safe.** `record()` reloads under a POSIX
+  file lock before writing, and `snapshot()` re-reads, so a proxy + CLI + MCP
+  server sharing one quota file no longer clobber each other's increments.
+- **MCP JSON-RPC conformance.** Parse errors (-32700), invalid requests
+  (-32600), and batch requests are handled per spec (a batch returns one JSON
+  array of responses) instead of being dropped.
+- **SQLite cache connections are explicitly closed** (`contextlib.closing`) —
+  `with sqlite3.connect()` only manages the transaction, so each get/put had
+  been leaking a file handle until GC.
+
 ## [0.10.0] — 2026-06-03
 
 ### Added

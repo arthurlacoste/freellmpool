@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 
-class BuffetError(Exception):
+class FreeLLMPoolError(Exception):
     """Base class for all freellmpool errors."""
 
 
-class NoProvidersConfigured(BuffetError):
+# Deprecated pre-rename alias; kept so old `except BuffetError` imports don't break.
+# Will be removed in a future release — catch FreeLLMPoolError instead.
+BuffetError = FreeLLMPoolError
+
+
+class NoProvidersConfigured(FreeLLMPoolError):
     """Raised when no provider has a usable API key in the environment."""
 
 
-class AllProvidersExhausted(BuffetError):
+class AllProvidersExhausted(FreeLLMPoolError):
     """Raised when every candidate provider failed or is over budget.
 
     The ``attempts`` attribute holds a list of ``(target, reason)`` tuples
@@ -24,7 +29,7 @@ class AllProvidersExhausted(BuffetError):
         super().__init__(f"all providers exhausted ({detail})")
 
 
-class ProviderHTTPError(BuffetError):
+class ProviderHTTPError(FreeLLMPoolError):
     """A provider returned a non-success HTTP status.
 
     ``status`` is the HTTP status code; ``retryable`` indicates whether the

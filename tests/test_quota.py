@@ -45,3 +45,16 @@ def test_snapshot(tmp_path):
     s.record("cerebras", "b", 1)
     snap = s.snapshot()
     assert snap == {"groq::a": 2, "cerebras::b": 1}
+
+
+def test_record_merges_concurrent_external_writes(tmp_path):
+    # Two stores share the file (as the proxy + a CLI process would). An increment
+    # from store B must not clobber an increment store A persisted in between —
+    # record() reloads under a cross-process lock before writing.
+    a = _store(tmp_path, 2)
+    b = _store(tmp_path, 2)
+    a.record("groq", "m", 1)  # A writes groq::m = 1
+    b.record("cerebras", "n", 1)  # B records its own key — must preserve A's
+    assert b.snapshot() == {"groq::m": 1, "cerebras::n": 1}
+    # and A sees B's write after a reload
+    assert a.snapshot() == {"groq::m": 1, "cerebras::n": 1}

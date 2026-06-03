@@ -9,13 +9,13 @@ Public API:
     print(reply.text)
 """
 
-from .errors import AllProvidersExhausted, BuffetError, NoProvidersConfigured
+from .errors import AllProvidersExhausted, FreeLLMPoolError, NoProvidersConfigured
 from .metrics import Metrics
 from .models import EmbedReply, Model, Provider, Reply
 from .plugins import register_adapter, register_provider
 from .router import Pool
 
-__version__ = "0.10.0"
+__version__ = "0.10.1"
 
 
 def __getattr__(name: str):
@@ -38,7 +38,7 @@ __all__ = [
     "Metrics",
     "register_provider",
     "register_adapter",
-    "BuffetError",
+    "FreeLLMPoolError",
     "NoProvidersConfigured",
     "AllProvidersExhausted",
     "__version__",

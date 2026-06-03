@@ -11,12 +11,18 @@ tests with an explicit path and a fixed clock.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+
+try:
+    import fcntl  # POSIX advisory file locks
+except ImportError:  # pragma: no cover - non-POSIX (Windows)
+    fcntl = None
 
 
 def _utc_day(now: datetime | None = None) -> str:
@@ -44,8 +50,31 @@ class QuotaStore:
         try:
             with self.path.open("r", encoding="utf-8") as fh:
                 return json.load(fh)
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
             return {}
+
+    @contextlib.contextmanager
+    def _file_lock(self):
+        """Cross-process exclusive lock around a read-modify-write of the quota
+        file, so a second process (proxy + CLI + MCP all share one file) can't
+        clobber another's increments. No-op where flock is unavailable."""
+        if fcntl is None:
+            yield
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+        try:
+            fh = open(lock_path, "w")
+        except OSError:
+            yield  # best-effort — fall back to in-process locking only
+            return
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            with contextlib.suppress(OSError):
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            fh.close()
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -76,7 +105,10 @@ class QuotaStore:
             return int(self._today().get(self._key(provider_id, model), 0))
 
     def record(self, provider_id: str, model: str, n: int = 1) -> int:
-        with self._lock:
+        with self._lock, self._file_lock():
+            # Reload under the lock so concurrent processes' increments survive
+            # (we'd otherwise write a stale whole-file snapshot over theirs).
+            self._data = self._load()
             bucket = self._today()
             key = self._key(provider_id, model)
             bucket[key] = int(bucket.get(key, 0)) + n
@@ -96,6 +128,10 @@ class QuotaStore:
         return self.used(provider_id, model) >= rpd
 
     def snapshot(self) -> dict[str, int]:
-        """Today's counters as a flat {provider::model: count} dict."""
+        """Today's counters as a flat {provider::model: count} dict.
+
+        Reloads from disk (a cheap, atomic os.replace target) so a long-running
+        proxy reflects increments other processes have made."""
         with self._lock:
+            self._data = self._load()
             return dict(self._today())

@@ -149,8 +149,12 @@ def _quota_summary(pool: Pool) -> str:
 def handle_message(pool: Pool, msg: dict, *, version: str = "0.0.0") -> dict | None:
     """Handle one JSON-RPC message. Returns a response dict, or None for
     notifications (which get no reply)."""
-    if not isinstance(msg, dict) or "method" not in msg:
-        return None
+    if not isinstance(msg, dict):
+        return _error(None, -32600, "invalid request: not a JSON-RPC object")
+    if "method" not in msg or not isinstance(msg["method"], str):
+        # A request (has id) without a valid method is an invalid request; a
+        # notification (no id) we simply drop.
+        return _error(msg["id"], -32600, "invalid request: missing method") if "id" in msg else None
     method = msg["method"]
     if "id" not in msg:  # notification (e.g. notifications/initialized)
         return None
@@ -181,6 +185,12 @@ def handle_message(pool: Pool, msg: dict, *, version: str = "0.0.0") -> dict | N
 def serve_stdio(pool: Pool, version: str = "0.0.0") -> None:
     """Run the MCP server over stdio until stdin closes."""
     out = sys.stdout
+
+    def emit(resp) -> None:
+        if resp is not None:
+            out.write(json.dumps(resp) + "\n")
+            out.flush()
+
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -188,8 +198,17 @@ def serve_stdio(pool: Pool, version: str = "0.0.0") -> None:
         try:
             msg = json.loads(line)
         except (json.JSONDecodeError, ValueError):
+            emit(_error(None, -32700, "parse error: invalid JSON"))
             continue
-        response = handle_message(pool, msg, version=version)
-        if response is not None:
-            out.write(json.dumps(response) + "\n")
-            out.flush()
+        if isinstance(msg, list):  # JSON-RPC batch
+            if not msg:
+                emit(_error(None, -32600, "invalid request: empty batch"))
+                continue
+            responses = [r for r in (handle_message(pool, m, version=version) for m in msg) if r]
+            # JSON-RPC 2.0: a batch gets a single response that is an array of the
+            # individual responses (omitting notifications). All-notifications → no reply.
+            if responses:
+                out.write(json.dumps(responses) + "\n")
+                out.flush()
+            continue
+        emit(handle_message(pool, msg, version=version))

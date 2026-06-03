@@ -113,3 +113,72 @@ def test_ask_failover_in_tool(providers, env, quota):
     )
     # alpha 500s and there's no beta in provider filter → tool error surfaced
     assert resp["result"]["isError"] is True
+
+
+def test_parse_error_returns_neg32700():
+    # serve_stdio emits a JSON-RPC parse error for invalid JSON
+    import io
+
+    from freellmpool.mcp_server import serve_stdio
+
+    out = io.StringIO()
+    import sys
+
+    old = sys.stdout
+    sys.stdin_backup = sys.stdin
+    sys.stdin = io.StringIO("{ not json\n")
+    sys.stdout = out
+    try:
+        from freellmpool.router import Pool
+
+        serve_stdio(Pool([], env={}))
+    finally:
+        sys.stdout = old
+        sys.stdin = sys.stdin_backup
+    import json
+
+    resp = json.loads(out.getvalue().strip())
+    assert resp["error"]["code"] == -32700
+    assert resp["id"] is None
+
+
+def test_invalid_request_missing_method(providers, env, quota):
+    from freellmpool.mcp_server import handle_message
+    from freellmpool.router import Pool
+
+    pool = Pool(providers, quota=quota, env=env)
+    resp = handle_message(pool, {"jsonrpc": "2.0", "id": 5})  # has id, no method
+    assert resp["error"]["code"] == -32600
+    assert resp["id"] == 5
+    # a non-dict is an invalid request with id null
+    assert handle_message(pool, 42)["error"]["code"] == -32600
+
+
+def test_batch_returns_single_json_array(providers, env, quota):
+    import io
+    import json
+    import sys
+
+    from freellmpool.mcp_server import serve_stdio
+    from freellmpool.router import Pool
+
+    batch = json.dumps(
+        [
+            {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},  # no reply
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        ]
+    )
+    out = io.StringIO()
+    old_in, old_out = sys.stdin, sys.stdout
+    sys.stdin = io.StringIO(batch + "\n")
+    sys.stdout = out
+    try:
+        serve_stdio(Pool(providers, quota=quota, env=env))
+    finally:
+        sys.stdin, sys.stdout = old_in, old_out
+    lines = [ln for ln in out.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 1  # one line, one JSON-RPC array (not 2 separate objects)
+    arr = json.loads(lines[0])
+    assert isinstance(arr, list) and len(arr) == 2  # notification omitted
+    assert {r["id"] for r in arr} == {1, 2}

@@ -247,3 +247,12 @@ def test_tool_calls_reply_is_success(providers, env, quota):
     )
     assert reply.message["tool_calls"] == tc  # empty content but tool_calls → success
     assert reply.attempts == 1
+
+
+def test_freellmpoolerror_rename_and_alias():
+    # the base exception is FreeLLMPoolError; BuffetError stays as a back-compat alias
+    from freellmpool import FreeLLMPoolError
+    from freellmpool.errors import AllProvidersExhausted, BuffetError
+
+    assert BuffetError is FreeLLMPoolError
+    assert issubclass(AllProvidersExhausted, FreeLLMPoolError)

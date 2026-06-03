@@ -16,6 +16,7 @@ import os
 import sqlite3
 import time
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 
 
@@ -34,7 +35,10 @@ class Cache:
         self.path = path or default_cache_path()
         self._clock = clock or time.time
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._conn() as con:
+        # `with sqlite3.connect()` manages the transaction but NOT the connection,
+        # so every call must also close() it (via contextlib.closing) or it leaks a
+        # file handle until GC. `, con` keeps the transaction-commit behavior.
+        with closing(self._conn()) as con, con:
             con.execute(
                 "CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, value TEXT, created REAL)"
             )
@@ -64,7 +68,7 @@ class Cache:
     def get(self, key: str) -> dict | None:
         cutoff = self._clock() - self.ttl
         try:
-            with self._conn() as con:
+            with closing(self._conn()) as con:
                 row = con.execute(
                     "SELECT value, created FROM cache WHERE key = ?", (key,)
                 ).fetchone()
@@ -79,7 +83,7 @@ class Cache:
 
     def put(self, key: str, value: dict) -> None:
         try:
-            with self._conn() as con:
+            with closing(self._conn()) as con, con:
                 con.execute(
                     "INSERT OR REPLACE INTO cache (key, value, created) VALUES (?, ?, ?)",
                     (key, json.dumps(value), self._clock()),

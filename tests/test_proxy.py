@@ -351,3 +351,77 @@ def test_get_routes_gated_by_key(providers, env, quota):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_streaming_request_with_tools_carries_tool_calls(providers, env, quota):
+    # stream:true + tools uses the buffered SSE path; tool_calls must survive.
+    tc = [{"id": "c1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]
+    post = make_post(
+        {"alpha.test": (200, {"choices": [{"message": {"content": None, "tool_calls": tc}}]})}
+    )
+    pool = Pool(providers, quota=quota, env=env, post=post)
+    httpd, base = _serve(pool)
+    try:
+        req = urllib.request.Request(
+            base + "/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "tools": [{"type": "function", "function": {"name": "f"}}],
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req) as resp:  # noqa: S310
+            raw = resp.read().decode()
+        chunks = [
+            json.loads(ln[len("data: ") :])
+            for ln in raw.splitlines()
+            if ln.startswith("data: ") and "[DONE]" not in ln
+        ]
+        tc_deltas = [c for c in chunks if c["choices"][0]["delta"].get("tool_calls")]
+        assert tc_deltas, "no tool_calls delta emitted"
+        streamed = tc_deltas[0]["choices"][0]["delta"]["tool_calls"]
+        assert streamed[0]["index"] == 0  # OpenAI streaming requires per-call index
+        assert streamed[0]["id"] == "c1"
+        assert chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_messages_empty_returns_anthropic_shaped_400(server):
+    code = _expect_status(server + "/v1/messages", {"model": "claude", "messages": []})
+    assert code == 400
+
+
+def test_messages_empty_error_envelope_is_anthropic(providers, env, quota):
+    pool = Pool(providers, quota=quota, env=env, post=make_post({}))
+    httpd, base = _serve(pool)
+    try:
+        req = urllib.request.Request(
+            base + "/v1/messages",
+            data=json.dumps({"model": "claude", "messages": []}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            urllib.request.urlopen(req)  # noqa: S310
+            raise AssertionError("expected 400")
+        except urllib.error.HTTPError as e:
+            body = json.load(e)
+        assert body["type"] == "error"  # Anthropic envelope, not OpenAI
+        assert body["error"]["type"] == "invalid_request_error"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_null_assistant_content_not_stringified():
+    # OpenAI sends content:null on assistant tool-call turns; it must not become "None"
+    from freellmpool.proxy import _normalize_messages
+
+    out = _normalize_messages([{"role": "assistant", "content": None, "tool_calls": [{"id": "x"}]}])
+    assert out[0]["content"] == ""
+    assert out[0]["tool_calls"] == [{"id": "x"}]
