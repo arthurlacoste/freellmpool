@@ -74,7 +74,7 @@ tiers — not a server you deploy and not a paid aggregator.</p>
 <ul>
 <li><strong>Use free LLMs from the command line:</strong> <code>freellmpool ask "..."</code>, pipe stdin, pin a provider/model.</li>
 <li><strong>Drop-in OpenAI replacement:</strong> point <code>OPENAI_BASE_URL</code> at <code>freellmpool proxy</code>; existing code is unchanged.</li>
-<li><strong>Run coding agents for free:</strong> <code>freellmpool code claude</code> (also codex, aider, cline, continue, cursor) routes them to pooled free models.</li>
+<li><strong>Run coding agents for free:</strong> <code>freellmpool code claude</code> (also codex, aider, cline, continue, cursor) routes them to pooled free models — see the <a href="run-coding-agents-on-free-models.html">step-by-step guide</a>.</li>
 <li><strong>Async + library:</strong> <code>from freellmpool import Pool, AsyncPool</code>.</li>
 <li><strong>MCP server:</strong> <code>freellmpool mcp</code> lets Claude Desktop/Code/Cursor offload subtasks to free models.</li>
 <li><strong>Pick the fastest tier:</strong> <code>freellmpool benchmark</code> + latency-aware routing.</li>
