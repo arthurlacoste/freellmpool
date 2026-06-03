@@ -54,6 +54,16 @@ def test_models_route(server):
     assert any(i.startswith("alpha/") for i in ids)
 
 
+def test_dashboard(server):
+    with urllib.request.urlopen(server + "/dashboard") as resp:  # noqa: S310
+        assert resp.status == 200
+        assert "text/html" in resp.headers["Content-Type"]
+        body = resp.read().decode()
+    assert "freellmpool" in body
+    assert "providers configured" in body
+    assert "not paid to OpenAI" in body
+
+
 def test_healthz(server):
     with urllib.request.urlopen(server + "/healthz") as resp:  # noqa: S310
         assert resp.status == 200

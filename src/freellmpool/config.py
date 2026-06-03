@@ -63,7 +63,14 @@ def resolve_alias(name: str, env: dict[str, str] | None = None) -> str:
     cfg_aliases = load_config_file(env).get("aliases", {})
     if name in cfg_aliases:
         return str(cfg_aliases[name])
-    return _DEFAULT_ALIASES.get(name, name)
+    if name in _DEFAULT_ALIASES:
+        return _DEFAULT_ALIASES[name]
+    # Prefix fallback: any unknown OpenAI/Anthropic frontier name routes to a free
+    # model, so e.g. Claude Code's "claude-sonnet-4-..." just works.
+    low = name.lower()
+    if low.startswith(("claude-", "claude ", "gpt-", "o1-", "o3-", "o4-", "chatgpt")):
+        return "auto"
+    return name
 
 
 def _user_catalog_path() -> Path | None:

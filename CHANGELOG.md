@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-06-03
+
+### Added
+- **Anthropic Messages shim (`/v1/messages`)** — run **Claude Code** (and any
+  Anthropic-API tool) on free models via `ANTHROPIC_BASE_URL`. Translates text +
+  tools (tool_use/tool_result) and emits Claude's exact streaming event sequence;
+  `claude-*` model names auto-route to free models. `freellmpool code claude`
+  prints the setup. Experimental (no vision yet). Live-verified end to end.
+- **Response caching (sqlite, opt-in).** Set `FREELLMPOOL_CACHE_TTL` (or
+  `[settings] cache_ttl`) to cache identical requests — saves quota on dev/test
+  loops and answers instantly. Off by default.
+- **Web dashboard** at **`/dashboard`** — a self-contained page showing
+  configured providers, today's per-provider usage, requests served, cache hits,
+  and "$ not paid to OpenAI". Auto-refreshes.
+
 ## [0.7.0] — 2026-06-03
 
 ### Added

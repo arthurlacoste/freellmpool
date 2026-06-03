@@ -1,12 +1,21 @@
 """Setup recipes for `freellmpool code <agent>` — wire a coding agent to the
-free proxy in one glance. OpenAI-compatible agents only (Claude Code speaks the
-Anthropic API, which freellmpool doesn't expose yet)."""
+free proxy in one glance. Covers OpenAI-compatible agents plus Claude Code
+(via the experimental Anthropic /v1/messages shim)."""
 
 from __future__ import annotations
 
 _PROXY = "http://localhost:8080/v1"
 
 AGENTS: dict[str, dict] = {
+    "claude": {
+        "label": "Claude Code",
+        "steps": [
+            "freellmpool proxy --port 8080",
+            "export ANTHROPIC_BASE_URL=http://localhost:8080 ANTHROPIC_API_KEY=anything",
+            "claude   # now running on free models via the /v1/messages shim",
+        ],
+        "note": "Experimental: routes Claude Code's Anthropic API to free models.",
+    },
     "codex": {
         "label": "OpenAI Codex CLI",
         "steps": [
@@ -86,8 +95,4 @@ def render(agent: str) -> str | None:
 
 def list_agents() -> str:
     rows = [f"  {name:<10} {rec['label']}" for name, rec in AGENTS.items()]
-    return (
-        "Usage: freellmpool code <agent>\n\nSupported coding agents:\n"
-        + "\n".join(rows)
-        + "\n\n(Claude Code speaks the Anthropic API, not OpenAI — not yet supported.)"
-    )
+    return "Usage: freellmpool code <agent>\n\nSupported coding agents:\n" + "\n".join(rows)

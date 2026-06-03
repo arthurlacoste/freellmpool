@@ -73,6 +73,7 @@ class Reply:
     completion_tokens: int | None = None
     attempts: int = 1  # how many providers were tried before this one succeeded
     message: dict | None = None  # raw assistant message (carries tool_calls, etc.)
+    cached: bool = False  # True if served from the response cache
 
     def __str__(self) -> str:  # pragma: no cover - convenience
         return self.text

@@ -18,7 +18,8 @@ freellmpool ask "Explain the CAP theorem in one sentence."   # ← real answer, 
 
 Groq, Cerebras, NVIDIA NIM, Google Gemini, OpenRouter, GitHub Models, Cloudflare Workers AI, Mistral, Cohere, and more each hand out a generous **free tier** — but each has its own SDK, rate limits, and daily cap. `freellmpool` puts all of them into one pool:
 
-- 🔌 **True drop-in.** Point any OpenAI SDK / tool at `freellmpool` and it just works — `/v1/chat/completions`, `/v1/models`, **tool/function-calling**, and a `/v1/responses` shim for **Codex CLI & agents**. Common model names (`gpt-4o-mini`, `claude-3-5-sonnet`, …) are **auto-aliased to free models**, so existing code runs unchanged.
+- 🔌 **True drop-in.** Point any OpenAI SDK / tool at `freellmpool` and it just works — `/v1/chat/completions` (real streaming + **tool-calling**), `/v1/embeddings`, a `/v1/responses` shim for **Codex CLI**, and an Anthropic `/v1/messages` shim so even **Claude Code** runs on free models. Common model names (`gpt-4o-mini`, `claude-3-5-sonnet`, …) are **auto-aliased to free models**, so existing code runs unchanged.
+- 📊 **Dashboard + caching.** A `/dashboard` page (usage, cache hits, $ saved) and an opt-in response cache for dev loops.
 - 🟢 **Zero config.** Works with **no API keys at all** — keyless providers are built in. `pip install` → `ask` → done.
 - 🔁 **Automatic failover.** Rate-limited or 5xx on one provider? `freellmpool` transparently rolls to the next, with a cooldown so it stops hammering a throttled pool.
 - 📊 **Quota-aware routing.** Spreads load least-used-first and respects each free daily limit, so you squeeze the most out of every tier.
@@ -192,11 +193,11 @@ The proxy does **real token-by-token streaming** (`stream: true`) and tool/funct
 
 ## Works with your tools
 
-> ⚡ **One-command setup:** `freellmpool code aider` (or `codex` / `cline` / `continue` / `cursor` / `opencode`) prints exactly how to wire that coding agent to free models.
+> ⚡ **One-command setup:** `freellmpool code claude` (or `codex` / `aider` / `cline` / `continue` / `cursor` / `opencode`) prints exactly how to wire that coding agent to free models — yes, **Claude Code on free models** via the Anthropic shim.
 
 Anything that accepts a custom OpenAI base URL drops straight in — copy-paste configs in **[docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)**:
 
-**[opencode](docs/INTEGRATIONS.md#opencode)** · **[aider](docs/INTEGRATIONS.md#aider)** · **[Continue](docs/INTEGRATIONS.md#continue-vs-code--jetbrains)** · **[Cline / Roo](docs/INTEGRATIONS.md#cline--roo-code)** · **[Cursor / Windsurf](docs/INTEGRATIONS.md#cursor--windsurf)** · **[Codex CLI](docs/AGENTS.md#openai-codex-cli)** · **[Open WebUI](docs/INTEGRATIONS.md#open-webui)** · **[LibreChat](docs/INTEGRATIONS.md#librechat)** · **[LangChain](docs/INTEGRATIONS.md#langchain)** · **[LlamaIndex](docs/INTEGRATIONS.md#llamaindex)** · **[Vercel AI SDK](docs/INTEGRATIONS.md#vercel-ai-sdk)** · **[llm CLI](docs/INTEGRATIONS.md#simon-willisons-llm)** · **[shell-gpt](docs/INTEGRATIONS.md#shell-gpt-sgpt)** · **[n8n](docs/INTEGRATIONS.md#n8n)**
+**[Claude Code](docs/AGENTS.md#claude-code)** · **[opencode](docs/INTEGRATIONS.md#opencode)** · **[aider](docs/INTEGRATIONS.md#aider)** · **[Continue](docs/INTEGRATIONS.md#continue-vs-code--jetbrains)** · **[Cline / Roo](docs/INTEGRATIONS.md#cline--roo-code)** · **[Cursor / Windsurf](docs/INTEGRATIONS.md#cursor--windsurf)** · **[Codex CLI](docs/AGENTS.md#openai-codex-cli)** · **[Open WebUI](docs/INTEGRATIONS.md#open-webui)** · **[LibreChat](docs/INTEGRATIONS.md#librechat)** · **[LangChain](docs/INTEGRATIONS.md#langchain)** · **[LlamaIndex](docs/INTEGRATIONS.md#llamaindex)** · **[Vercel AI SDK](docs/INTEGRATIONS.md#vercel-ai-sdk)** · **[llm CLI](docs/INTEGRATIONS.md#simon-willisons-llm)** · **[shell-gpt](docs/INTEGRATIONS.md#shell-gpt-sgpt)** · **[n8n](docs/INTEGRATIONS.md#n8n)**
 
 ## Use it as a library
 

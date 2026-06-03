@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from . import client as _client
+from .cache import Cache
 from .client import PostFn, StreamPostFn, default_post, default_stream_post
 from .config import (
     configured_embedders,
@@ -54,6 +55,7 @@ class Pool:
         clock: Callable[[], float] | None = None,
         embedders: list[Provider] | None = None,
         stream_post: StreamPostFn = default_stream_post,
+        cache: Cache | None = None,
     ):
         self.providers = providers
         self.embedders = embedders or []
@@ -61,13 +63,14 @@ class Pool:
         self.env = env if env is not None else dict(os.environ)
         self._post = post
         self._stream_post = stream_post
+        self._cache = cache
         self.cooldown_seconds = cooldown_seconds
         self._clock = clock or time.monotonic
         # provider_id -> monotonic time until which to deprioritize after a 429
         self._cooldown_until: dict[str, float] = {}
         self._cooldown_lock = threading.Lock()
         # cumulative usage for the "$ saved vs OpenAI" metric
-        self.stats = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0}
+        self.stats = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "cache_hits": 0}
 
     def _mark_cooldown(self, provider_id: str, now: float) -> None:
         until = now + self.cooldown_seconds
@@ -94,7 +97,10 @@ class Pool:
         env = effective_env(env)
         providers = configured_providers(load_catalog(), env)
         embedders = configured_embedders(load_embedders(), env)
-        cooldown = float(settings(env).get("cooldown_seconds", 60.0))
+        cfg = settings(env)
+        cooldown = float(cfg.get("cooldown_seconds", 60.0))
+        ttl = float(env.get("FREELLMPOOL_CACHE_TTL") or cfg.get("cache_ttl", 0) or 0)
+        cache = Cache(ttl) if ttl > 0 else None
         return cls(
             providers,
             quota=quota,
@@ -102,6 +108,7 @@ class Pool:
             post=post,
             cooldown_seconds=cooldown,
             embedders=embedders,
+            cache=cache,
         )
 
     def embed(
@@ -227,7 +234,27 @@ class Pool:
                 "no provider has an API key set; see .env.example for the env vars"
             )
 
-        targets = self._order(self._all_targets(include=providers, model=model))
+        provider_list = list(providers) if providers else None
+        cache_key = None
+        if self._cache is not None:
+            cache_key = self._cache.make_key(
+                messages, model, provider_list, max_tokens, temperature, tools
+            )
+            hit = self._cache.get(cache_key)
+            if hit is not None:
+                self.stats["cache_hits"] += 1
+                return Reply(
+                    text=hit.get("text", ""),
+                    provider_id=hit.get("provider_id", "cache"),
+                    model=hit.get("model", "?"),
+                    raw={},
+                    prompt_tokens=hit.get("prompt_tokens"),
+                    completion_tokens=hit.get("completion_tokens"),
+                    message=hit.get("message"),
+                    cached=True,
+                )
+
+        targets = self._order(self._all_targets(include=provider_list, model=model))
         if not targets:
             raise NoProvidersConfigured("no candidate (provider, model) matched the given filters")
 
@@ -283,6 +310,18 @@ class Pool:
             self.stats["requests"] += 1
             self.stats["prompt_tokens"] += reply.prompt_tokens or 0
             self.stats["completion_tokens"] += reply.completion_tokens or 0
+            if self._cache is not None and cache_key is not None:
+                self._cache.put(
+                    cache_key,
+                    {
+                        "text": reply.text,
+                        "provider_id": reply.provider_id,
+                        "model": reply.model,
+                        "prompt_tokens": reply.prompt_tokens,
+                        "completion_tokens": reply.completion_tokens,
+                        "message": reply.message,
+                    },
+                )
             return reply
 
         raise AllProvidersExhausted(attempts)

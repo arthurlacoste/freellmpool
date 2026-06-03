@@ -15,6 +15,7 @@ Supported routes:
     POST /v1/chat/completions       route a chat completion (true token streaming)
     POST /v1/embeddings             pooled free embeddings
     POST /v1/responses              Responses API shim (Codex CLI / agents)
+    POST /v1/messages               Anthropic Messages shim (Claude Code / agents)
     GET  /healthz                   liveness probe
 """
 
@@ -24,6 +25,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from .anthropic_shim import estimate_tokens, reply_to_message, reply_to_sse, request_to_chat
 from .config import resolve_alias
 from .errors import AllProvidersExhausted, BuffetError, NoProvidersConfigured
 from .router import Pool
@@ -39,7 +41,7 @@ def _model_ids(pool: Pool) -> list[str]:
 
 def make_handler(pool: Pool, api_key: str | None = None):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "freellmpool/0.7"
+        server_version = "freellmpool/0.8"
 
         # quiet by default; the server prints its own concise log line
         def log_message(self, format, *args):  # noqa: A002
@@ -59,11 +61,13 @@ def make_handler(pool: Pool, api_key: str | None = None):
             self._send(status, {"error": {"message": message, "type": code}})
 
         def _authorized(self) -> bool:
-            """If a proxy key is configured, require a matching Bearer token."""
+            """If a proxy key is configured, require a matching Bearer token
+            (OpenAI style) or x-api-key (Anthropic style)."""
             if not api_key:
                 return True
-            header = self.headers.get("Authorization", "")
-            return header == f"Bearer {api_key}"
+            if self.headers.get("Authorization", "") == f"Bearer {api_key}":
+                return True
+            return self.headers.get("x-api-key", "") == api_key
 
         def do_GET(self) -> None:  # noqa: N802
             try:
@@ -81,6 +85,14 @@ def make_handler(pool: Pool, api_key: str | None = None):
             if self.path.rstrip("/") == "/healthz":
                 self._send(200, {"status": "ok"})
                 return
+            if self.path.rstrip("/") in ("/dashboard", "/"):
+                html = _dashboard_html(pool).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(html)))
+                self.end_headers()
+                self.wfile.write(html)
+                return
             if self.path.rstrip("/").endswith("/v1/models") or self.path.rstrip("/") == "/models":
                 data = [
                     {"id": mid, "object": "model", "owned_by": "freellmpool"}
@@ -95,7 +107,9 @@ def make_handler(pool: Pool, api_key: str | None = None):
             is_chat = route.endswith("/v1/chat/completions") or route == "/chat/completions"
             is_responses = route.endswith("/v1/responses") or route == "/responses"
             is_embeddings = route.endswith("/v1/embeddings") or route == "/embeddings"
-            if not (is_chat or is_responses or is_embeddings):
+            is_count = route.endswith("/v1/messages/count_tokens")
+            is_messages = not is_count and (route.endswith("/v1/messages") or route == "/messages")
+            if not (is_chat or is_responses or is_embeddings or is_messages or is_count):
                 self._error(404, f"unknown route {self.path}", "not_found")
                 return
             if not self._authorized():
@@ -121,8 +135,39 @@ def make_handler(pool: Pool, api_key: str | None = None):
                 self._handle_embeddings(req)
             elif is_responses:
                 self._handle_responses(req)
+            elif is_count:
+                self._send(200, {"input_tokens": estimate_tokens(req)})
+            elif is_messages:
+                self._handle_messages(req)
             else:
                 self._handle_chat(req)
+
+        def _handle_messages(self, req: dict) -> None:
+            """Anthropic Messages API shim — lets Claude Code & friends use free models."""
+            chat = request_to_chat(req)
+            display_model = req.get("model") or "auto"
+            resolved = resolve_alias(str(chat["model"]), pool.env)
+            provider_filter, model_filter = _parse_model(resolved, {p.id for p in pool.providers})
+            try:
+                reply = pool.chat(
+                    chat["messages"],
+                    model=model_filter,
+                    providers=provider_filter,
+                    max_tokens=chat["max_tokens"],
+                    temperature=chat["temperature"],
+                    tools=chat["tools"],
+                    tool_choice=chat["tool_choice"],
+                )
+            except NoProvidersConfigured as exc:
+                self._error(503, str(exc), "no_providers")
+                return
+            except AllProvidersExhausted as exc:
+                self._error(502, str(exc), "all_providers_exhausted")
+                return
+            if req.get("stream"):
+                self._send_sse(reply_to_sse(reply, display_model))
+            else:
+                self._send(200, reply_to_message(reply, display_model))
 
         def _handle_embeddings(self, req: dict) -> None:
             data = req.get("input")
@@ -393,6 +438,69 @@ def _to_openai_response(reply) -> dict:
         },
         "x_freellmpool": {"provider": reply.provider_id, "model": reply.model},
     }
+
+
+def _dashboard_html(pool) -> str:
+    """A self-contained dashboard page (no JS framework, auto-refreshing)."""
+    import html as _html
+
+    from . import __version__
+    from .savings import usd_saved
+
+    s = pool.stats
+    saved = usd_saved(s.get("prompt_tokens"), s.get("completion_tokens"))
+    snap = pool.quota.snapshot()
+    by_provider: dict[str, int] = {}
+    for key, count in snap.items():
+        pid = key.split("::", 1)[0]
+        by_provider[pid] = by_provider.get(pid, 0) + count
+
+    configured = {p.id for p in pool.providers}
+    rows = []
+    for p in pool.providers:
+        used = by_provider.get(p.id, 0)
+        keyless = " · keyless" if p.keyless else ""
+        rows.append(
+            f"<tr><td>{_html.escape(p.id)}{keyless}</td>"
+            f"<td>{len(p.models)}</td><td class=num>{used}</td></tr>"
+        )
+    other = sorted(pid for pid in by_provider if pid not in configured)
+    for pid in other:
+        rows.append(
+            f"<tr><td>{_html.escape(pid)}</td><td>-</td><td class=num>{by_provider[pid]}</td></tr>"
+        )
+    provider_rows = "\n".join(rows) or "<tr><td colspan=3>no providers configured</td></tr>"
+
+    cards = [
+        ("requests served", str(s.get("requests", 0))),
+        ("cache hits", str(s.get("cache_hits", 0))),
+        ("tokens out", f"{s.get('completion_tokens', 0):,}"),
+        ("not paid to OpenAI", f"${saved:,.2f}"),
+    ]
+    card_html = "\n".join(
+        f"<div class=card><div class=big>{v}</div><div class=lbl>{k}</div></div>" for k, v in cards
+    )
+    return f"""<!doctype html><html><head><meta charset=utf-8>
+<meta http-equiv=refresh content=5><title>freellmpool</title>
+<style>
+ body{{font-family:ui-sans-serif,system-ui,sans-serif;margin:0;background:#0b0e14;color:#e6e6e6}}
+ .wrap{{max-width:760px;margin:0 auto;padding:32px 20px}}
+ h1{{font-size:22px;margin:0 0 2px}} .sub{{color:#8a93a2;font-size:13px;margin-bottom:24px}}
+ .cards{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}}
+ .card{{background:#141925;border:1px solid #232a39;border-radius:10px;padding:16px;text-align:center}}
+ .big{{font-size:26px;font-weight:700}} .lbl{{color:#8a93a2;font-size:11px;margin-top:4px}}
+ table{{width:100%;border-collapse:collapse;background:#141925;border:1px solid #232a39;border-radius:10px;overflow:hidden}}
+ th,td{{padding:9px 14px;text-align:left;border-bottom:1px solid #232a39;font-size:14px}}
+ th{{color:#8a93a2;font-weight:600;font-size:12px}} .num{{text-align:right;font-variant-numeric:tabular-nums}}
+ a{{color:#6ea8ff}}
+</style></head><body><div class=wrap>
+<h1>🫗 freellmpool <span style="color:#8a93a2;font-weight:400;font-size:14px">v{__version__}</span></h1>
+<div class=sub>{len(pool.providers)} providers configured · today's usage (UTC) · auto-refreshes every 5s</div>
+<div class=cards>{card_html}</div>
+<table><tr><th>provider</th><th>models</th><th class=num>requests today</th></tr>
+{provider_rows}</table>
+<p class=sub style="margin-top:20px">OpenAI endpoint: <code>/v1</code> · <a href="https://github.com/0xzr/freellmpool">github.com/0xzr/freellmpool</a></p>
+</div></body></html>"""
 
 
 def _chunk_block(cid: str, model_id: str, *, role=None, content=None, finish=None) -> str:

@@ -31,6 +31,22 @@ print(resp.choices[0].message.content)
 See [`examples/agent_openai_sdk.py`](../examples/agent_openai_sdk.py) for a
 runnable version.
 
+## Claude Code
+
+Claude Code speaks the **Anthropic Messages API**, which freellmpool shims at
+`/v1/messages` — so it can run on free models:
+
+```bash
+freellmpool proxy --port 8080
+export ANTHROPIC_BASE_URL=http://localhost:8080
+export ANTHROPIC_API_KEY=anything
+claude   # now on free models
+```
+
+> Experimental. Text and tool-use (the agentic file-editing loop) are translated;
+> vision isn't yet. Free models are weaker than Claude — great for cheap iteration,
+> not a full replacement. `freellmpool code claude` prints this.
+
 ## OpenAI Codex CLI
 
 Codex speaks the **Responses API**, which `freellmpool` shims at `/v1/responses`:

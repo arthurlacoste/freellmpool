@@ -181,6 +181,7 @@ def cmd_proxy(args: argparse.Namespace) -> int:
         f"({len(pool.providers)} providers, {n_models} models)\n"
         f"{auth_note}"
         f"  point your OpenAI client at:  OPENAI_BASE_URL=http://{args.host}:{args.port}/v1\n"
+        f"  dashboard:  http://{args.host}:{args.port}/dashboard\n"
         "  press Ctrl-C to stop",
         file=sys.stderr,
     )
