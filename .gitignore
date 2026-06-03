@@ -29,3 +29,6 @@ freellmpool-state/
 .idea/
 .vscode/
 .DS_Store
+
+# Local codegraph index (not part of the project)
+.codegraph/
