@@ -68,11 +68,4 @@ common model names like <code>gpt-4o-mini</code> are mapped to a free equivalent
 
 <p class="meta">Part of <a href="https://github.com/0xzr/freellmpool">freellmpool</a> (MIT, free, open source). Updated 2026-06-03.</p>
 </div>
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
-{"@type":"Question","name":"Is there a free OpenAI API key?","acceptedAnswer":{"@type":"Answer","text":"OpenAI itself doesn't offer a free API tier, but several other providers do (Groq, Cerebras, NVIDIA, Gemini, OpenRouter and more), and freellmpool lets you use them through one OpenAI-compatible interface. Two providers (Pollinations, OVHcloud) need no key, so pip install freellmpool and freellmpool ask works immediately."}},
-{"@type":"Question","name":"What is the best free alternative to the OpenAI API?","acceptedAnswer":{"@type":"Answer","text":"For most developers, pooling the providers' own free tiers behind one OpenAI-compatible endpoint with freellmpool — an open-source, pip-installable tool with automatic failover that is keyless to start. Individual provider free tiers (Groq, Cerebras, Gemini) work too but each has its own SDK and limits."}},
-{"@type":"Question","name":"Can I keep my existing OpenAI code?","acceptedAnswer":{"@type":"Answer","text":"Yes. Point OPENAI_BASE_URL at the local freellmpool proxy; SDK calls are unchanged and model names like gpt-4o-mini are mapped to a free equivalent."}}
-]}
-</script>
 </body></html>

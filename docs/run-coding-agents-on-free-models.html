@@ -97,31 +97,5 @@ Cline, Continue, Cursor, OpenCode, and more.</p>
 source). Updated 2026-06-03.</p>
 
 </div>
-<script type="application/ld+json">
-{
-  "@context":"https://schema.org",
-  "@type":"HowTo",
-  "name":"Run Claude Code, Codex, or Aider on free LLM models",
-  "description":"Run coding agents on free LLM tiers by pointing them at freellmpool, a local OpenAI- and Anthropic-compatible proxy that pools 16 free providers.",
-  "totalTime":"PT2M",
-  "tool":[{"@type":"HowToTool","name":"freellmpool"}],
-  "step":[
-    {"@type":"HowToStep","name":"Install and start the proxy","text":"pip install freellmpool, then run freellmpool proxy to serve http://localhost:8080 (OpenAI + Anthropic compatible)."},
-    {"@type":"HowToStep","name":"Point your agent at it","text":"Set ANTHROPIC_BASE_URL (Claude Code) or OPENAI_BASE_URL (Codex, Aider, Cline, Continue, Cursor) to the local proxy; the API key is ignored."},
-    {"@type":"HowToStep","name":"Optionally add free provider keys","text":"Add free API keys for Groq, Cerebras, Gemini and others to unlock more models and higher daily limits."}
-  ]
-}
-</script>
-<script type="application/ld+json">
-{
-  "@context":"https://schema.org",
-  "@type":"FAQPage",
-  "mainEntity":[
-    {"@type":"Question","name":"Can I really use Claude Code for free?","acceptedAnswer":{"@type":"Answer","text":"Yes, for the experimental text and tool-use path: freellmpool's proxy implements the Anthropic Messages API and routes it to free models, so Claude Code runs against them with no code changes. Quality is bounded by the free-tier models and there is no vision support yet."}},
-    {"@type":"Question","name":"Which coding agents are supported?","acceptedAnswer":{"@type":"Answer","text":"Any tool that lets you set an OpenAI or Anthropic base URL: Claude Code, OpenAI Codex CLI, Aider, Cline, Continue, Cursor, OpenCode, and more."}},
-    {"@type":"Question","name":"How do I run Codex on free models?","acceptedAnswer":{"@type":"Answer","text":"Start freellmpool proxy, then set OPENAI_BASE_URL=http://localhost:8080/v1 and any OPENAI_API_KEY before launching codex. Requests route to pooled free providers with failover."}}
-  ]
-}
-</script>
 </body>
 </html>

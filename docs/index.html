@@ -167,20 +167,5 @@ Project: <a href="https://github.com/0xzr/freellmpool">github.com/0xzr/freellmpo
   "author": {"@type": "Person", "name": "0xzr"}
 }
 </script>
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  "mainEntity": [
-    {"@type":"Question","name":"Is there a free, OpenAI-compatible LLM API gateway?","acceptedAnswer":{"@type":"Answer","text":"Yes. freellmpool is a free, open-source, MIT-licensed gateway that exposes one OpenAI-compatible endpoint backed by the free tiers of 16 providers. Install it with pip install freellmpool and point any OpenAI client at the local proxy."}},
-    {"@type":"Question","name":"How do I use multiple free LLM APIs at once?","acceptedAnswer":{"@type":"Answer","text":"freellmpool pools them: each request goes to a provider you have access to, and if that one is rate-limited or down it automatically fails over to the next. It tracks per-day usage so load spreads evenly across the free tiers, and an optional fast routing mode prefers the lowest-latency provider."}},
-    {"@type":"Question","name":"Can I run Claude Code or Codex on free models?","acceptedAnswer":{"@type":"Answer","text":"Yes. The proxy implements both the OpenAI and the Anthropic APIs, so you set OPENAI_BASE_URL or ANTHROPIC_BASE_URL to the local proxy and run Codex, Claude Code, aider, Cline, Continue, or Cursor on pooled free models without changing code. Run freellmpool code claude for the setup. The Claude Code path is experimental: text and tool use, no vision yet."}},
-    {"@type":"Question","name":"Do I need an API key?","acceptedAnswer":{"@type":"Answer","text":"No key is required to start: Pollinations and OVHcloud work anonymously, so a fresh install answers immediately. Add free keys for the other 14 providers to unlock more models and higher limits."}},
-    {"@type":"Question","name":"Which free LLM providers does freellmpool support?","acceptedAnswer":{"@type":"Answer","text":"16 providers: Pollinations, OVHcloud, LLM7, Groq, Cerebras, NVIDIA NIM, OpenRouter, Google Gemini, GitHub Models, Cloudflare Workers AI, Mistral, Cohere, SambaNova, Z.ai/Zhipu, Ollama Cloud, and LongCat, with 235 live-validated chat models plus free embeddings."}},
-    {"@type":"Question","name":"How is freellmpool different from OpenRouter?","acceptedAnswer":{"@type":"Answer","text":"OpenRouter is a hosted aggregator you pay per token and access through its API. freellmpool is a local, open-source tool you pip install that pools the providers' own free tiers directly, works with no key to start, and ships a CLI, a Python library, a proxy, and an MCP server."}},
-    {"@type":"Question","name":"Is freellmpool free and open source?","acceptedAnswer":{"@type":"Answer","text":"Yes. freellmpool is MIT-licensed and free to use. Source is on GitHub and the package is on PyPI."}}
-  ]
-}
-</script>
 </body>
 </html>

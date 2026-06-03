@@ -70,10 +70,4 @@ grow your total free capacity.</p>
 
 <p class="meta">Part of <a href="https://github.com/0xzr/freellmpool">freellmpool</a> (MIT, free, open source). Updated 2026-06-03.</p>
 </div>
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
-{"@type":"Question","name":"How do I use multiple free LLM APIs at once?","acceptedAnswer":{"@type":"Answer","text":"Pool them with freellmpool: set each provider's free API key as an environment variable and it routes each request to a provider you have capacity on, failing over automatically when one is rate-limited. It tracks per-day usage so load spreads evenly across the free tiers."}},
-{"@type":"Question","name":"Do I need an API key for every provider?","acceptedAnswer":{"@type":"Answer","text":"No. Two providers (Pollinations, OVHcloud) are keyless so freellmpool works immediately; add free keys for the others over time to grow your total free capacity."}}
-]}
-</script>
 </body></html>
