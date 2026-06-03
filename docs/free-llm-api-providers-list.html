@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Free LLM API providers list (2026) — free tiers, models, limits</title>
+<meta name="description" content="A 2026 list of LLM providers with a free API tier — Groq, Cerebras, NVIDIA, Gemini, OpenRouter, Cloudflare, Mistral, Cohere and more — with whether they need an API key, how many models, and free-tier signals. Plus how to pool them all with freellmpool.">
+<link rel="canonical" href="https://0xzr.github.io/freellmpool/free-llm-api-providers-list.html">
+<meta property="og:title" content="Free LLM API providers list (2026)">
+<meta property="og:description" content="16 providers with free LLM API tiers, compared — and how to pool them all.">
+<meta property="og:type" content="article">
+<style>
+ :root{--bg:#0b0e14;--fg:#e6e6e6;--mut:#8a93a2;--card:#141925;--bd:#232a39;--ac:#6ea8ff}
+ *{box-sizing:border-box}body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;margin:0;background:var(--bg);color:var(--fg);line-height:1.6}
+ .wrap{max-width:860px;margin:0 auto;padding:40px 20px 80px}
+ h1{font-size:26px;margin:0 0 6px;line-height:1.25}h2{font-size:20px;margin:36px 0 10px;border-bottom:1px solid var(--bd);padding-bottom:6px}
+ .tag{color:var(--mut);font-size:14px}a{color:var(--ac);text-decoration:none}a:hover{text-decoration:underline}
+ code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;overflow:auto;font-size:13.5px}code{background:#1b2230;padding:1px 5px;border-radius:4px;font-size:.92em}pre code{background:none;padding:0}
+ .lead{font-size:17px}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13.5px;background:var(--card);border:1px solid var(--bd);border-radius:8px;overflow:hidden}th,td{padding:8px 11px;text-align:left;border-bottom:1px solid var(--bd)}th{color:var(--mut)}.num{text-align:right}
+ .note{background:var(--card);border:1px solid var(--bd);border-left:3px solid var(--ac);border-radius:6px;padding:10px 14px;font-size:14px;margin:14px 0}
+ .meta{color:var(--mut);font-size:13px;margin-top:34px;border-top:1px solid var(--bd);padding-top:14px}
+</style>
+</head>
+<body><div class="wrap">
+<p class="tag"><a href="https://0xzr.github.io/freellmpool/">freellmpool</a> › reference</p>
+<h1>Free LLM API providers (2026)</h1>
+
+<p class="lead"><strong>These 16 providers offer a free LLM API tier you can call today. Two need no API
+key at all. The table shows whether a key is required, roughly how many models the free tier exposes, and
+a free-tier signal where known. The catch with using several is that each has its own SDK and limits — the
+open-source <a href="https://github.com/0xzr/freellmpool">freellmpool</a> pools all of them behind one
+OpenAI-compatible endpoint with failover, so you get their combined free capacity through one interface.</strong></p>
+
+<table>
+<tr><th>Provider</th><th>API key?</th><th class=num>Free models*</th><th>Free-tier signal**</th></tr>
+<tr><td>Pollinations</td><td>No (keyless)</td><td class=num>3</td><td>Anonymous; rate-limited per IP</td></tr>
+<tr><td>OVHcloud AI Endpoints</td><td>No (keyless)</td><td class=num>13</td><td>Anonymous tier</td></tr>
+<tr><td>LLM7</td><td>Optional</td><td class=num>9</td><td>~60/hour without a token</td></tr>
+<tr><td>Groq</td><td>Yes (free)</td><td class=num>9</td><td>~1,000 req/day (per model)</td></tr>
+<tr><td>Cerebras</td><td>Yes (free)</td><td class=num>4</td><td>~14,400 req/day (large cap)</td></tr>
+<tr><td>Google Gemini</td><td>Yes (free)</td><td class=num>3</td><td>~1,500 req/day</td></tr>
+<tr><td>OpenRouter</td><td>Yes (free)</td><td class=num>26</td><td>~1,000 req/day on :free models</td></tr>
+<tr><td>GitHub Models</td><td>Yes (any PAT)</td><td class=num>41</td><td>~150 req/day</td></tr>
+<tr><td>NVIDIA NIM</td><td>Yes (free)</td><td class=num>92</td><td>Free credits / rate-limited</td></tr>
+<tr><td>Cloudflare Workers AI</td><td>Yes (free)</td><td class=num>25</td><td>Daily Neuron allowance</td></tr>
+<tr><td>Mistral</td><td>Yes (free)</td><td class=num>39</td><td>Free experimentation tier</td></tr>
+<tr><td>Cohere</td><td>Yes (free)</td><td class=num>14</td><td>Trial keys, rate-limited</td></tr>
+<tr><td>SambaNova</td><td>Yes (free)</td><td class=num>8</td><td>Free tier, rate-limited</td></tr>
+<tr><td>Z.ai / Zhipu GLM</td><td>Yes (free)</td><td class=num>2</td><td>~1,000 req/day</td></tr>
+<tr><td>Ollama Cloud</td><td>Yes (free)</td><td class=num>40</td><td>Qualitative free limits</td></tr>
+<tr><td>LongCat (Meituan)</td><td>Yes (free)</td><td class=num>1</td><td>Free preview</td></tr>
+</table>
+<p class="tag">* Count of models freellmpool routes to on each free tier (live-validated; varies as tiers change).
+** Free-tier signals are approximate and change without notice — always check the provider's current
+docs. freellmpool tracks your real per-day usage as you go.</p>
+
+<div class="note">No single free tier has enough daily capacity for sustained use — but the sum of them
+does. That's the point of pooling.</div>
+
+<h2>Use any (or all) of them in one line</h2>
+<pre><code>pip install freellmpool
+freellmpool ask "Explain the CAP theorem in one sentence."   # keyless, picks a free provider
+freellmpool providers                                         # see which tiers you've configured</code></pre>
+<p>Add each provider's free key as an env var to grow capacity; signup links are in the
+<a href="https://github.com/0xzr/freellmpool/blob/main/docs/ACCOUNTS.md">accounts guide</a>. See also:
+<a href="use-multiple-free-llm-apis.html">using multiple free LLM APIs together</a> ·
+<a href="best-free-llm-api-gateway.html">best free LLM API gateway</a>.</p>
+
+<h2>FAQ</h2>
+<h3>Which LLM providers have a free API tier?</h3>
+<p>As of 2026, free API tiers are offered by Groq, Cerebras, Google Gemini, NVIDIA, OpenRouter, GitHub
+Models, Cloudflare, Mistral, Cohere, SambaNova, Z.ai/Zhipu, Ollama Cloud, LongCat, LLM7, Pollinations, and
+OVHcloud. Pollinations and OVHcloud work with no API key.</p>
+<h3>What's the free LLM API with the highest limit?</h3>
+<p>Among the common free tiers, Cerebras advertises one of the largest daily request caps, and providers
+like Groq and OpenRouter offer roughly a thousand requests/day on free models. Limits change often — pool
+several with freellmpool so a single cap isn't a bottleneck.</p>
+
+<p class="meta">Part of <a href="https://github.com/0xzr/freellmpool">freellmpool</a> (MIT, free, open source). Data from the freellmpool catalog. Updated 2026-06-03.</p>
+</div>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"Which LLM providers have a free API tier?","acceptedAnswer":{"@type":"Answer","text":"As of 2026, free API tiers are offered by Groq, Cerebras, Google Gemini, NVIDIA, OpenRouter, GitHub Models, Cloudflare, Mistral, Cohere, SambaNova, Z.ai/Zhipu, Ollama Cloud, LongCat, LLM7, Pollinations, and OVHcloud. Pollinations and OVHcloud work with no API key. freellmpool pools all of them behind one OpenAI-compatible endpoint."}},
+{"@type":"Question","name":"What is the free LLM API with the highest limit?","acceptedAnswer":{"@type":"Answer","text":"Among common free tiers, Cerebras advertises one of the largest daily request caps, while Groq and OpenRouter offer roughly a thousand requests per day on free models. Limits change often, so pooling several with freellmpool avoids a single cap being a bottleneck."}}
+]}
+</script>
+</body></html>
