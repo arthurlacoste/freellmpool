@@ -26,9 +26,9 @@ def run_healthcheck(pool: Pool, *, model: str | None = None, providers=None, tim
             note = f"{row.tokens} tok" if row.tokens else "responded"
             out.append(HealthRow(row.target, "ok", row.latency_ms, note))
         else:
-            note = (row.error or "failed").splitlines()[0]
+            note = _short_note(row.error or "failed")
             status = "rate_limited" if "429" in note else "fail"
-            out.append(HealthRow(row.target, status, None, note[:80]))
+            out.append(HealthRow(row.target, status, None, note))
     return out
 
 
@@ -39,7 +39,11 @@ def render_health_table(rows: list[HealthRow]) -> str:
     lines = [f"  {'provider/model':<{width}}  {'status':<12}  {'latency':>9}  note"]
     for row in rows:
         latency = f"{row.latency_ms:,.0f} ms" if row.latency_ms is not None else "-"
-        lines.append(f"  {row.target:<{width}}  {row.status:<12}  {latency:>9}  {row.note}")
+        lines.append(f"  {row.target:<{width}}  {row.status:<12}  {latency:>9}  {_short_note(row.note)}")
     ok = sum(1 for row in rows if row.ok)
     lines.append(f"\n  {ok}/{len(rows)} providers ok")
     return "\n".join(lines)
+
+
+def _short_note(value: str) -> str:
+    return value.splitlines()[0][:80]

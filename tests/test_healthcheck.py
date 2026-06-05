@@ -33,3 +33,62 @@ def test_run_healthcheck_success():
     assert len(rows) == 1
     assert rows[0].ok
     assert rows[0].target == "demo/model"
+
+
+def test_run_healthcheck_failure_and_rate_limit(monkeypatch):
+    from freellmpool import healthcheck
+
+    class FakeRow:
+        def __init__(self, target: str, error: str):
+            self.target = target
+            self.ok = False
+            self.latency_ms = None
+            self.tokens = None
+            self.error = error
+
+    monkeypatch.setattr(
+        healthcheck,
+        "benchmark",
+        lambda *args, **kwargs: [
+            FakeRow("demo/a", "429 Too Many Requests"),
+            FakeRow("demo/b", "500 Internal Error"),
+        ],
+    )
+
+    rows = run_healthcheck(Pool([]), timeout=1)
+
+    assert [row.status for row in rows] == ["rate_limited", "fail"]
+    assert not rows[0].ok
+    assert not rows[1].ok
+
+
+def test_run_healthcheck_notes_for_tokens_and_empty_tokens(monkeypatch):
+    from freellmpool import healthcheck
+
+    class FakeRow:
+        def __init__(self, target: str, tokens):
+            self.target = target
+            self.ok = True
+            self.latency_ms = 10.0
+            self.tokens = tokens
+            self.error = None
+
+    monkeypatch.setattr(
+        healthcheck,
+        "benchmark",
+        lambda *args, **kwargs: [FakeRow("demo/a", 123), FakeRow("demo/b", None)],
+    )
+
+    text = render_health_table(run_healthcheck(Pool([]), timeout=1))
+
+    assert "123 tok" in text
+    assert "responded" in text
+
+
+def test_render_health_table_uses_first_error_line_and_truncates_note():
+    first_line = "X" * 90
+    text = render_health_table([HealthRow("demo/model", "fail", None, first_line + "\nsecond")])
+
+    assert "second" not in text
+    assert "X" * 80 in text
+    assert "X" * 81 not in text

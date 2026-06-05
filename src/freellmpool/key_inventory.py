@@ -15,6 +15,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from .toml_utils import dump_simple_toml, toml_escape
+
 _SECRET_PATTERNS = [
     re.compile(r"\bsk-[A-Za-z0-9_\-]{8,}\b"),
     re.compile(r"\bsk-or-[A-Za-z0-9_\-]{8,}\b"),
@@ -121,6 +123,11 @@ def records_by_provider(records: list[KeyRecord]) -> dict[str, list[KeyRecord]]:
 
 
 def default_config_path() -> Path:
+    """Return the config.toml path used for [keys] values.
+
+    FREELLMPOOL_CONFIG_FILE points to config.toml. FREELLMPOOL_CONFIG is reserved
+    for the user provider catalog, matching freellmpool.config.
+    """
     override = os.environ.get("FREELLMPOOL_CONFIG_FILE")
     if override:
         return Path(override).expanduser()
@@ -145,7 +152,7 @@ def upsert_config_key(env_var: str, value: str, path: Path | None = None) -> Pat
     keys[env_var] = value
     data["keys"] = keys
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_dump_simple_toml(data), encoding="utf-8")
+    path.write_text(dump_simple_toml(data), encoding="utf-8")
     try:
         path.chmod(0o600)
     except OSError:
@@ -168,34 +175,12 @@ def append_inventory_record(record: KeyRecord, path: Path | None = None) -> Path
 def _dump_inventory(records: list[KeyRecord]) -> str:
     chunks = []
     for record in records:
-        lines = ["[[keys]]", f'provider = "{_toml_escape(record.provider)}"']
+        lines = ["[[keys]]", f'provider = "{toml_escape(record.provider)}"']
         for name in ("env_var", "label", "created_at", "expires_at", "notes"):
             value = getattr(record, name)
             if value:
-                lines.append(f'{name} = "{_toml_escape(value)}"')
+                lines.append(f'{name} = "{toml_escape(value)}"')
         if record.commercial_allowed is not None:
             lines.append(f"commercial_allowed = {str(record.commercial_allowed).lower()}")
         chunks.append("\n".join(lines))
     return "\n\n".join(chunks) + ("\n" if chunks else "")
-
-
-def _dump_simple_toml(data: dict[str, dict]) -> str:
-    chunks = []
-    for table, values in data.items():
-        lines = [f"[{table}]"]
-        for key, value in values.items():
-            lines.append(f'{key} = {_toml_value(value)}')
-        chunks.append("\n".join(lines))
-    return "\n\n".join(chunks) + ("\n" if chunks else "")
-
-
-def _toml_value(value) -> str:
-    if isinstance(value, bool):
-        return str(value).lower()
-    if isinstance(value, int | float):
-        return str(value)
-    return f'"{_toml_escape(str(value))}"'
-
-
-def _toml_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')

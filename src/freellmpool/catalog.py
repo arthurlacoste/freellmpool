@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .toml_utils import toml_escape
+
 DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/mnfst/awesome-free-llm-apis/main/data.json"
 
 
@@ -152,7 +154,8 @@ def match_local_provider(external: ExternalProvider, local_providers) -> str | N
     """Return the local provider id matching an external catalog row, if any."""
     external_base = (external.base_url or "").rstrip("/").lower()
     for provider in local_providers:
-        if provider.base_url.rstrip("/").lower() == external_base and external_base:
+        local_base = (provider.base_url or "").rstrip("/").lower()
+        if local_base == external_base and external_base:
             return provider.id
     external_slug = external.slug
     for provider in local_providers:
@@ -189,7 +192,10 @@ def import_external_provider_to_user_catalog(query: str) -> str:
     try:
         raw = json.loads(data_path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
-        raise ValueError("external catalog cache is missing; run capacity status first") from None
+        raise ValueError(
+            "external catalog cache is missing; run freellmpool catalog sync or "
+            "freellmpool capacity status first"
+        ) from None
     needle = _external_lookup_slug(query)
     rows = raw.get("providers", []) if isinstance(raw, dict) else []
     match = None
@@ -235,13 +241,13 @@ def import_external_provider_to_user_catalog(query: str) -> str:
                 fh.write("\n")
             fh.write("\n[[provider]]\n")
             fh.write(f'id = "{provider_id}"\n')
-            fh.write(f'label = "{_toml_escape(str(match.get("name") or query))}"\n')
+            fh.write(f'label = "{toml_escape(str(match.get("name") or query))}"\n')
             fh.write('adapter = "openai"\n')
-            fh.write(f'base_url = "{_toml_escape(base_url)}"\n')
+            fh.write(f'base_url = "{toml_escape(base_url)}"\n')
             fh.write(f'key_env = "{key_env}"\n')
             fh.write("models = [\n")
             for model_id, rpd in models:
-                fh.write(f'    {{ name = "{_toml_escape(model_id)}", rpd = {rpd} }},\n')
+                fh.write(f'    {{ name = "{toml_escape(model_id)}", rpd = {rpd} }},\n')
             fh.write("]\n")
     return provider_id
 
@@ -264,11 +270,8 @@ def _external_lookup_slug(value: str) -> str:
 
 
 def _user_provider_catalog_path() -> Path:
+    """Return the providers.toml path used for user provider definitions."""
     override = os.environ.get("FREELLMPOOL_CONFIG")
     if override:
         return Path(override).expanduser()
     return Path.home() / ".config" / "freellmpool" / "providers.toml"
-
-
-def _toml_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')

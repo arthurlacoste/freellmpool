@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from freellmpool.catalog import parse_external_catalog
+import pytest
+
+from freellmpool.catalog import (
+    ExternalProvider,
+    import_external_provider_to_user_catalog,
+    match_local_provider,
+    parse_external_catalog,
+)
 
 
 def test_parse_external_catalog_rate_limits():
@@ -32,10 +39,7 @@ def test_parse_external_catalog_rate_limits():
 
 
 def test_import_external_provider_to_user_catalog(tmp_path, monkeypatch):
-    from freellmpool.catalog import (
-        default_external_catalog_path,
-        import_external_provider_to_user_catalog,
-    )
+    from freellmpool.catalog import default_external_catalog_path
 
     cache = tmp_path / "provider_catalog.json"
     user_catalog = tmp_path / "providers.toml"
@@ -56,3 +60,33 @@ def test_import_external_provider_to_user_catalog(tmp_path, monkeypatch):
     assert 'Qwen/Qwen3.5-27B' in written
     assert '+ API-Inference-enabled models' not in written
     assert 'rpd = 500' in written
+
+
+def test_import_external_provider_missing_cache_points_to_catalog_sync(tmp_path, monkeypatch):
+    monkeypatch.setenv("FREELLMPOOL_EXTERNAL_CATALOG_PATH", str(tmp_path / "missing.json"))
+
+    with pytest.raises(ValueError, match="freellmpool catalog sync"):
+        import_external_provider_to_user_catalog("ModelScope")
+
+
+def test_match_local_provider_handles_missing_local_base_url():
+    external = ExternalProvider(
+        name="Demo",
+        slug="external-demo",
+        category=None,
+        url=None,
+        base_url="https://example.test/v1",
+        description="",
+        model_count=0,
+        best_rpd=0,
+        best_rpm=0,
+        best_tpd=0,
+        generous_score=0,
+    )
+
+    class LocalProvider:
+        id = "local"
+        label = "Local"
+        base_url = None
+
+    assert match_local_provider(external, [LocalProvider()]) is None
