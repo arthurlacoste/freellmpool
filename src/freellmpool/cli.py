@@ -263,6 +263,103 @@ def _choose_provider(catalog, provider_id: str | None):
         print("Invalid provider, try again.")
 
 
+def _yes(raw: str) -> bool:
+    return raw.strip().lower() in {"y", "yes"}
+
+
+def _load_or_sync_external_catalog():
+    from .catalog import load_external_catalog, sync_external_catalog
+
+    external = load_external_catalog()
+    if external:
+        return external
+    try:
+        _, external = sync_external_catalog()
+    except Exception:  # noqa: BLE001 - keys add can continue with manual creation
+        return []
+    return external
+
+
+def _import_or_create_provider(provider_name: str, args: argparse.Namespace) -> str | None:
+    from .catalog import (
+        create_user_provider_stub,
+        discover_openai_models,
+        import_external_provider_to_user_catalog,
+        suggest_external_provider,
+    )
+
+    external = _load_or_sync_external_catalog()
+    suggestion = suggest_external_provider(provider_name, external)
+    if suggestion:
+        provider_slug = suggestion.provider.slug.replace("-", "_")
+        query_slug = provider_name.lower().replace("_", "-")
+        is_exact_provider = suggestion.exact and query_slug in {suggestion.provider.slug, provider_slug}
+        if is_exact_provider or (
+            not args.yes
+            and _yes(
+                input(
+                    f"Provider not found. Use external match "
+                    f"{suggestion.provider.name} (matched {suggestion.matched})? [y/N] "
+                )
+            )
+        ):
+            local_id = import_external_provider_to_user_catalog(suggestion.provider.name)
+            print(f"Imported external provider '{suggestion.provider.name}' as local provider '{local_id}'.")
+            return local_id
+
+    if args.yes and not args.base_url:
+        print("Provider not found. Pass --base-url to create it non-interactively.", file=sys.stderr)
+        return None
+
+    if not args.yes and not _yes(input(f"Provider '{provider_name}' not found. Create it manually? [y/N] ")):
+        return None
+
+    base_url = args.base_url or input("OpenAI-compatible API base URL: ").strip()
+    model = args.model or ("" if args.yes else input("Default model id (blank to autodiscover): ").strip())
+    if not model:
+        api_key = getattr(args, "value", None)
+        if not api_key and not args.yes:
+            import getpass
+
+            api_key = getpass.getpass("API key for model discovery (blank if not needed): ").strip()
+            if api_key:
+                args.value = api_key
+        try:
+            models = discover_openai_models(base_url, api_key=api_key or None)
+        except ValueError as exc:
+            print(f"Could not autodiscover models: {exc}", file=sys.stderr)
+            models = []
+        model = _choose_discovered_model(models, args)
+        if not model and not args.yes:
+            model = input("Default model id: ").strip()
+    try:
+        local_id = create_user_provider_stub(name=provider_name, base_url=base_url, model=model)
+    except ValueError as exc:
+        print(f"Could not create provider: {exc}", file=sys.stderr)
+        return None
+    print(f"Created local provider '{local_id}' in user providers.toml.")
+    return local_id
+
+
+def _choose_discovered_model(models: list[str], args: argparse.Namespace) -> str | None:
+    if not models:
+        return None
+    if len(models) == 1 or args.yes:
+        print(f"Discovered model: {models[0]}")
+        return models[0]
+    print("Discovered models:")
+    for i, model in enumerate(models[:10], start=1):
+        print(f"  {i}. {model}")
+    raw = input("Model number or id: ").strip()
+    if raw.isdigit():
+        idx = int(raw)
+        if 1 <= idx <= min(len(models), 10):
+            return models[idx - 1]
+    if raw in models:
+        return raw
+    return None
+
+
 def cmd_keys_add(args: argparse.Namespace) -> int:
     import getpass
     from datetime import date
@@ -286,14 +383,9 @@ def cmd_keys_add(args: argparse.Namespace) -> int:
     except SystemExit:
         if not args.provider:
             raise
-        from .catalog import import_external_provider_to_user_catalog
-
-        try:
-            local_id = import_external_provider_to_user_catalog(args.provider)
-        except ValueError as exc:
-            print(f"Could not import provider: {exc}", file=sys.stderr)
+        local_id = _import_or_create_provider(args.provider, args)
+        if not local_id:
             return 3
-        print(f"Imported external provider '{args.provider}' as local provider '{local_id}'.")
         provider = _choose_provider(load_catalog(), local_id)
 
     value = getattr(args, "value", None)
@@ -550,6 +642,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_keys_add.add_argument("provider_arg", nargs="?", help="provider id or external provider name")
     p_keys_add.add_argument("-p", "--provider")
     p_keys_add.add_argument("--value")
+    p_keys_add.add_argument("--base-url", help="OpenAI-compatible base URL for a new provider")
+    p_keys_add.add_argument("--model", help="default model id for a new provider")
     p_keys_add.add_argument("--label")
     p_keys_add.add_argument("--notes")
     p_keys_add.add_argument("--commercial-allowed", action="store_true")

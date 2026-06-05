@@ -73,6 +73,28 @@ Manual key checklist to reach 5 healthy providers:
   - cloudflare: create a key manually, then set CLOUDFLARE_API_TOKEN
 ```
 
+## Adding a provider key
+
+`keys add` first looks for an existing local provider. If the provider is not local, it checks the synced external catalog. Typos and model names are matched with a small Levenshtein search, then the CLI asks before importing the suggested provider.
+
+```bash
+freellmpool keys add Hyperbolic
+freellmpool keys add Hyperbolc
+freellmpool keys add Llama-3.3-70B-Instruct
+```
+
+If no external match is good enough, the CLI can create a minimal OpenAI-compatible provider in the user `providers.toml`. It asks for the API base URL and a default model id. Leave the model blank to autodiscover models from the OpenAI-compatible `GET /models` endpoint; if a key is needed, the CLI uses the key passed with `--value` or asks for one.
+
+Non-interactive example:
+
+```bash
+freellmpool keys add Hyperbolic \
+  --base-url https://api.hyperbolic.xyz/v1 \
+  --model meta-llama/Llama-3.3-70B-Instruct \
+  --value "$HYPERBOLIC_API_KEY" \
+  --yes
+```
+
 ## Provider health
 
 `providers health` sends one tiny request to each configured provider and reports latency or failure.

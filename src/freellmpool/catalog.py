@@ -39,6 +39,15 @@ class ExternalProvider:
     best_rpm: int
     best_tpd: int
     generous_score: int
+    search_terms: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ExternalProviderMatch:
+    provider: ExternalProvider
+    matched: str
+    distance: int
+    exact: bool
 
 
 def sync_external_catalog(
@@ -100,6 +109,11 @@ def parse_external_catalog(data: Any) -> list[ExternalProvider]:
                 best_rpm=best_rpm,
                 best_tpd=best_tpd,
                 generous_score=score,
+                search_terms=tuple(
+                    str(model.get("id") or model.get("name") or "").strip()
+                    for model in models
+                    if isinstance(model, dict) and (model.get("id") or model.get("name"))
+                ),
             )
         )
     providers.sort(key=lambda p: (-p.generous_score, p.slug))
@@ -182,6 +196,37 @@ def match_local_provider(external: ExternalProvider, local_providers) -> str | N
     return None
 
 
+def suggest_external_provider(query: str, providers: list[ExternalProvider]) -> ExternalProviderMatch | None:
+    """Return the best external provider match from provider names or model ids."""
+    needle = _external_lookup_slug(query)
+    if not needle:
+        return None
+
+    candidates: list[tuple[ExternalProvider, str]] = []
+    for provider in providers:
+        candidates.append((provider, provider.name))
+        candidates.append((provider, provider.slug))
+        for model in provider.search_terms:
+            candidates.append((provider, model))
+
+    best: ExternalProviderMatch | None = None
+    for provider, value in candidates:
+        candidate = _external_lookup_slug(value)
+        if not candidate:
+            continue
+        distance = _levenshtein(needle, candidate)
+        exact = distance == 0 or needle in candidate or candidate in needle
+        if exact:
+            distance = 0
+        if best is None or distance < best.distance:
+            best = ExternalProviderMatch(provider=provider, matched=value, distance=distance, exact=exact)
+
+    if best is None:
+        return None
+    max_distance = max(2, len(needle) // 4)
+    return best if best.exact or best.distance <= max_distance else None
+
+
 def import_external_provider_to_user_catalog(query: str) -> str:
     """Create a user providers.toml stub from an external-only catalog provider.
 
@@ -196,17 +241,9 @@ def import_external_provider_to_user_catalog(query: str) -> str:
             "external catalog cache is missing; run freellmpool catalog sync or "
             "freellmpool capacity status first"
         ) from None
-    needle = _external_lookup_slug(query)
-    rows = raw.get("providers", []) if isinstance(raw, dict) else []
-    match = None
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        name = str(row.get("name") or "")
-        if _external_lookup_slug(name) == needle:
-            match = row
-            break
+    match = _find_external_provider_row(raw, query)
     if match is None:
+        rows = raw.get("providers", []) if isinstance(raw, dict) else []
         available = ", ".join(str(row.get("name")) for row in rows[:8] if isinstance(row, dict))
         raise ValueError(f"provider not found in external catalog: {query}. Try one of: {available}")
     base_url = str(match.get("baseUrl") or "").strip()
@@ -252,6 +289,71 @@ def import_external_provider_to_user_catalog(query: str) -> str:
     return provider_id
 
 
+def create_user_provider_stub(
+    *,
+    name: str,
+    base_url: str,
+    model: str,
+    key_env: str | None = None,
+) -> str:
+    """Append a minimal OpenAI-compatible provider to the user providers.toml."""
+    provider_id = _slug(name).replace("-", "_")
+    if not provider_id:
+        raise ValueError("provider name is required")
+    base_url = base_url.strip().rstrip("/")
+    if not base_url:
+        raise ValueError("base_url is required")
+    model = model.strip()
+    if not model:
+        raise ValueError("model is required")
+    key_env = key_env or provider_id.upper() + "_API_KEY"
+
+    path = _user_provider_catalog_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    if f'id = "{provider_id}"' not in existing:
+        with path.open("a", encoding="utf-8") as fh:
+            if existing and not existing.endswith("\n"):
+                fh.write("\n")
+            fh.write("\n[[provider]]\n")
+            fh.write(f'id = "{provider_id}"\n')
+            fh.write(f'label = "{toml_escape(name)}"\n')
+            fh.write('adapter = "openai"\n')
+            fh.write(f'base_url = "{toml_escape(base_url)}"\n')
+            fh.write(f'key_env = "{toml_escape(key_env)}"\n')
+            fh.write("models = [\n")
+            fh.write(f'    {{ name = "{toml_escape(model)}" }},\n')
+            fh.write("]\n")
+    return provider_id
+
+
+def discover_openai_models(
+    base_url: str,
+    *,
+    api_key: str | None = None,
+    timeout: float = 10.0,
+) -> list[str]:
+    """Discover model ids from an OpenAI-compatible /models endpoint."""
+    url = base_url.strip().rstrip("/") + "/models"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8")
+        data = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"model discovery failed: {exc}") from None
+    rows = data.get("data", []) if isinstance(data, dict) else []
+    models = []
+    for row in rows:
+        model_id = row.get("id") if isinstance(row, dict) else None
+        if model_id:
+            models.append(str(model_id))
+    return models
+
+
 def _external_lookup_slug(value: str) -> str:
     slug = _slug(value)
     aliases = {
@@ -267,6 +369,41 @@ def _external_lookup_slug(value: str) -> str:
         "huggingface": "hugging-face",
     }
     return aliases.get(slug, slug)
+
+
+def _find_external_provider_row(data: Any, query: str) -> dict | None:
+    needle = _external_lookup_slug(query)
+    rows = data.get("providers", []) if isinstance(data, dict) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "")
+        if _external_lookup_slug(name) == needle:
+            return row
+    return None
+
+
+def _levenshtein(left: str, right: str) -> int:
+    if left == right:
+        return 0
+    if not left:
+        return len(right)
+    if not right:
+        return len(left)
+    previous = list(range(len(right) + 1))
+    for i, char_left in enumerate(left, start=1):
+        current = [i]
+        for j, char_right in enumerate(right, start=1):
+            cost = 0 if char_left == char_right else 1
+            current.append(
+                min(
+                    current[j - 1] + 1,
+                    previous[j] + 1,
+                    previous[j - 1] + cost,
+                )
+            )
+        previous = current
+    return previous[-1]
 
 
 def _user_provider_catalog_path() -> Path:

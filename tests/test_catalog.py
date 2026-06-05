@@ -4,9 +4,12 @@ import pytest
 
 from freellmpool.catalog import (
     ExternalProvider,
+    create_user_provider_stub,
+    discover_openai_models,
     import_external_provider_to_user_catalog,
     match_local_provider,
     parse_external_catalog,
+    suggest_external_provider,
 )
 
 
@@ -36,6 +39,29 @@ def test_parse_external_catalog_rate_limits():
     assert providers[0].best_rpm == 2000
     assert providers[0].best_tpd == 1_000_000
     assert providers[1].best_rpd == 100
+
+
+def test_suggest_external_provider_matches_typo_and_model_id():
+    data = {
+        "providers": [
+            {
+                "name": "Hyperbolic",
+                "baseUrl": "https://api.hyperbolic.xyz/v1",
+                "models": [{"id": "meta-llama/Llama-3.3-70B-Instruct", "rateLimit": "100 RPD"}],
+            }
+        ]
+    }
+    providers = parse_external_catalog(data)
+
+    typo = suggest_external_provider("Hyperbolc", providers)
+    by_model = suggest_external_provider("Llama-3.3-70B-Instruct", providers)
+
+    assert typo is not None
+    assert typo.provider.name == "Hyperbolic"
+    assert not typo.exact
+    assert by_model is not None
+    assert by_model.provider.name == "Hyperbolic"
+    assert by_model.exact
 
 
 def test_import_external_provider_to_user_catalog(tmp_path, monkeypatch):
@@ -90,3 +116,52 @@ def test_match_local_provider_handles_missing_local_base_url():
         base_url = None
 
     assert match_local_provider(external, [LocalProvider()]) is None
+
+
+def test_create_user_provider_stub(tmp_path, monkeypatch):
+    user_catalog = tmp_path / "providers.toml"
+    monkeypatch.setenv("FREELLMPOOL_CONFIG", str(user_catalog))
+
+    local_id = create_user_provider_stub(
+        name="Hyperbolic",
+        base_url="https://api.hyperbolic.xyz/v1/",
+        model="meta-llama/Llama-3.3-70B-Instruct",
+    )
+
+    text = user_catalog.read_text()
+    assert local_id == "hyperbolic"
+    assert 'id = "hyperbolic"' in text
+    assert 'base_url = "https://api.hyperbolic.xyz/v1"' in text
+    assert 'key_env = "HYPERBOLIC_API_KEY"' in text
+    assert 'name = "meta-llama/Llama-3.3-70B-Instruct"' in text
+
+
+def test_discover_openai_models(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b'{"data":[{"id":"model-a"},{"id":"model-b"}]}'
+
+    seen = {}
+
+    def fake_urlopen(request, timeout):
+        seen["url"] = request.full_url
+        seen["auth"] = request.headers.get("Authorization")
+        seen["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    models = discover_openai_models("https://api.example.test/v1/", api_key="secret", timeout=3)
+
+    assert models == ["model-a", "model-b"]
+    assert seen == {
+        "url": "https://api.example.test/v1/models",
+        "auth": "Bearer secret",
+        "timeout": 3,
+    }
