@@ -46,6 +46,17 @@ healthy. From [#7](https://github.com/0xzr/freellmpool/pull/7) by
   fetches http(s) only (no `file://`).
 - External-catalog and model-discovery downloads are size-capped.
 
+### Catalog
+- Re-vetted the live model set against every provider: 22 models that moved to a
+  paid tier (402), were removed (404), or became tier-gated (403) are now
+  `enabled = false` (still callable when pinned); 8 that recovered are
+  re-enabled; added NVIDIA's `nemotron-3-ultra-550b-a55b` (on NVIDIA NIM and
+  OpenRouter). 223 of 331 catalog entries are auto-routable. SambaNova's free
+  chat tier is gone (all models 402) — kept in the catalog, off.
+- New maintainer tool `scripts/vet_catalog.py`: lists each provider's live
+  `/models`, diffs it against the catalog, and pings every entry through the
+  real client to flag dead vs rate-limited models.
+
 ## [0.10.1] — 2026-06-03
 
 A full-project review (Codex + a manual pass), reconciled to consensus, plus the
