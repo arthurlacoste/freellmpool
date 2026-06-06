@@ -106,7 +106,7 @@ freellmpool providers health -p groq,cerebras
 freellmpool providers health -m llama-3.3-70b-versatile
 ```
 
-This is different from `capacity status`: health checks touch the network, while capacity status only reads local state.
+This is different from `capacity status`. `providers health` sends real test requests to each configured provider's API. `capacity status` never calls a provider, but by default it does refresh the advisory external catalog over the network (a read-only metadata fetch); pass `--no-catalog-sync` to keep it fully local.
 
 ## Dashboard
 

@@ -18,6 +18,32 @@ from .toml_utils import toml_escape
 
 DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/mnfst/awesome-free-llm-apis/main/data.json"
 
+# Cap network reads so a huge/hostile body can't exhaust memory.
+_MAX_CATALOG_BYTES = 8 * 1024 * 1024
+_MAX_DISCOVER_BYTES = 4 * 1024 * 1024
+
+
+def _validated_base_url(raw: str, *, https_only: bool, what: str, strip: bool = False) -> str:
+    """Validate a base URL before it becomes (or is queried as) a routing target.
+
+    Rejects empty values, embedded whitespace/control characters, and disallowed
+    schemes. ``strip=True`` trims surrounding whitespace first (friendly for
+    user-typed input); ``strip=False`` validates the raw value (untrusted catalog
+    data, so leading/trailing junk is rejected rather than silently normalized).
+    """
+    url = (raw or "").strip() if strip else (raw or "")
+    if not url.strip():
+        raise ValueError(f"{what} requires a base URL")
+    schemes = ("https://",) if https_only else ("http://", "https://")
+    if not url.lower().startswith(schemes) or any(
+        c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in url
+    ):
+        need = "https" if https_only else "http(s)"
+        raise ValueError(
+            f"{what} has an unsupported base URL (need {need}, no whitespace/control chars)"
+        )
+    return url
+
 
 def default_external_catalog_path() -> Path:
     override = os.environ.get("FREELLMPOOL_EXTERNAL_CATALOG_PATH")
@@ -57,9 +83,12 @@ def sync_external_catalog(
     timeout: float = 20.0,
 ) -> tuple[Path, list[ExternalProvider]]:
     path = path or default_external_catalog_path()
+    # source_url is the fixed https default (or a caller-provided override).
     with urllib.request.urlopen(source_url, timeout=timeout) as response:
-        raw = response.read().decode("utf-8")
-    data = json.loads(raw)
+        raw_bytes = response.read(_MAX_CATALOG_BYTES + 1)
+    if len(raw_bytes) > _MAX_CATALOG_BYTES:
+        raise ValueError(f"external catalog exceeds {_MAX_CATALOG_BYTES} bytes; refusing to load")
+    data = json.loads(raw_bytes.decode("utf-8"))
     providers = parse_external_catalog(data)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
@@ -196,7 +225,9 @@ def match_local_provider(external: ExternalProvider, local_providers) -> str | N
     return None
 
 
-def suggest_external_provider(query: str, providers: list[ExternalProvider]) -> ExternalProviderMatch | None:
+def suggest_external_provider(
+    query: str, providers: list[ExternalProvider]
+) -> ExternalProviderMatch | None:
     """Return the best external provider match from provider names or model ids."""
     needle = _external_lookup_slug(query)
     if not needle:
@@ -219,7 +250,9 @@ def suggest_external_provider(query: str, providers: list[ExternalProvider]) -> 
         if exact:
             distance = 0
         if best is None or distance < best.distance:
-            best = ExternalProviderMatch(provider=provider, matched=value, distance=distance, exact=exact)
+            best = ExternalProviderMatch(
+                provider=provider, matched=value, distance=distance, exact=exact
+            )
 
     if best is None:
         return None
@@ -245,10 +278,14 @@ def import_external_provider_to_user_catalog(query: str) -> str:
     if match is None:
         rows = raw.get("providers", []) if isinstance(raw, dict) else []
         available = ", ".join(str(row.get("name")) for row in rows[:8] if isinstance(row, dict))
-        raise ValueError(f"provider not found in external catalog: {query}. Try one of: {available}")
-    base_url = str(match.get("baseUrl") or "").strip()
-    if not base_url:
-        raise ValueError(f"external provider has no baseUrl: {query}")
+        raise ValueError(
+            f"provider not found in external catalog: {query}. Try one of: {available}"
+        )
+    # Third-party catalog data; the imported provider becomes an executable
+    # routing target once its key is set, so validate the RAW value strictly.
+    base_url = _validated_base_url(
+        str(match.get("baseUrl") or ""), https_only=True, what=f"external provider {query}"
+    )
     provider_id = _slug(str(match.get("name") or query)).replace("-", "_")
     key_env = provider_id.upper() + "_API_KEY"
     models = []
@@ -300,9 +337,9 @@ def create_user_provider_stub(
     provider_id = _slug(name).replace("-", "_")
     if not provider_id:
         raise ValueError("provider name is required")
-    base_url = base_url.strip().rstrip("/")
-    if not base_url:
-        raise ValueError("base_url is required")
+    base_url = _validated_base_url(base_url, https_only=False, what="provider", strip=True).rstrip(
+        "/"
+    )
     model = model.strip()
     if not model:
         raise ValueError("model is required")
@@ -334,15 +371,23 @@ def discover_openai_models(
     timeout: float = 10.0,
 ) -> list[str]:
     """Discover model ids from an OpenAI-compatible /models endpoint."""
-    url = base_url.strip().rstrip("/") + "/models"
+    # base_url is user-supplied; only fetch http(s) (never file://, etc.).
+    url = (
+        _validated_base_url(base_url, https_only=False, what="model discovery", strip=True).rstrip(
+            "/"
+        )
+        + "/models"
+    )
     headers = {"Accept": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
-        data = json.loads(raw)
+            raw_bytes = response.read(_MAX_DISCOVER_BYTES + 1)
+        if len(raw_bytes) > _MAX_DISCOVER_BYTES:
+            raise ValueError(f"model discovery response exceeds {_MAX_DISCOVER_BYTES} bytes")
+        data = json.loads(raw_bytes.decode("utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"model discovery failed: {exc}") from None
     rows = data.get("data", []) if isinstance(data, dict) else []

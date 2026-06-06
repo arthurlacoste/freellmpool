@@ -2,9 +2,31 @@
 
 from __future__ import annotations
 
+# TOML basic strings must escape backslash, double-quote, and control characters
+# (newline, CR, etc.). Tab is allowed literally. Anything generated from
+# untrusted input (e.g. the external provider catalog) is run through this so a
+# stray control character can't corrupt the file it's written into.
+_TOML_BASIC_ESCAPES = {
+    "\\": "\\\\",
+    '"': '\\"',
+    "\b": "\\b",
+    "\f": "\\f",
+    "\n": "\\n",
+    "\r": "\\r",
+}
+
 
 def toml_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+    out = []
+    for ch in value:
+        mapped = _TOML_BASIC_ESCAPES.get(ch)
+        if mapped is not None:
+            out.append(mapped)
+        elif ch != "\t" and (ch < "\x20" or ch == "\x7f"):
+            out.append(f"\\u{ord(ch):04x}")
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def toml_value(value) -> str:

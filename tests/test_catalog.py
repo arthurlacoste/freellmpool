@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from freellmpool.catalog import (
@@ -83,9 +85,9 @@ def test_import_external_provider_to_user_catalog(tmp_path, monkeypatch):
     written = user_catalog.read_text()
     assert 'id = "modelscope"' in written
     assert 'key_env = "MODELSCOPE_API_KEY"' in written
-    assert 'Qwen/Qwen3.5-27B' in written
-    assert '+ API-Inference-enabled models' not in written
-    assert 'rpd = 500' in written
+    assert "Qwen/Qwen3.5-27B" in written
+    assert "+ API-Inference-enabled models" not in written
+    assert "rpd = 500" in written
 
 
 def test_import_external_provider_missing_cache_points_to_catalog_sync(tmp_path, monkeypatch):
@@ -144,7 +146,7 @@ def test_discover_openai_models(monkeypatch):
         def __exit__(self, *args):
             return None
 
-        def read(self):
+        def read(self, *args):
             return b'{"data":[{"id":"model-a"},{"id":"model-b"}]}'
 
     seen = {}
@@ -165,3 +167,66 @@ def test_discover_openai_models(monkeypatch):
         "auth": "Bearer secret",
         "timeout": 3,
     }
+
+
+def _write_cache(tmp_path, monkeypatch, base_url, model_id="m"):
+    cache = tmp_path / "provider_catalog.json"
+    cache.write_text(
+        json.dumps(
+            {
+                "providers": [
+                    {
+                        "name": "P",
+                        "baseUrl": base_url,
+                        "models": [{"id": model_id, "modality": "Text", "rateLimit": "1 RPD"}],
+                    }
+                ]
+            }
+        )
+    )
+    monkeypatch.setenv("FREELLMPOOL_EXTERNAL_CATALOG_PATH", str(cache))
+    monkeypatch.setenv("FREELLMPOOL_CONFIG", str(tmp_path / "providers.toml"))
+
+
+def test_import_rejects_non_https_base_url(tmp_path, monkeypatch):
+    _write_cache(tmp_path, monkeypatch, "http://api.insecure.test/v1")
+    with pytest.raises(ValueError, match="https"):
+        import_external_provider_to_user_catalog("P")
+
+
+def test_import_rejects_surrounding_whitespace_base_url(tmp_path, monkeypatch):
+    _write_cache(tmp_path, monkeypatch, "https://api.test/v1\n")
+    with pytest.raises(ValueError, match="https"):
+        import_external_provider_to_user_catalog("P")
+
+
+def test_import_sanitizes_control_chars_in_model_id(tmp_path, monkeypatch):
+    """A malicious model id with a newline must not corrupt the user catalog."""
+    import tomllib
+
+    evil = 'good\nkey_env = "PATH"\n[[provider]]\nid = "injected"\nmodels = [{ name = "x"'
+    _write_cache(tmp_path, monkeypatch, "https://api.evil.test/v1", model_id=evil)
+    import_external_provider_to_user_catalog("P")
+    parsed = tomllib.loads((tmp_path / "providers.toml").read_text())
+    assert [p.get("id") for p in parsed.get("provider", [])] == ["p"]
+
+
+def test_create_user_provider_stub_rejects_bad_scheme(tmp_path, monkeypatch):
+    monkeypatch.setenv("FREELLMPOOL_CONFIG", str(tmp_path / "providers.toml"))
+    with pytest.raises(ValueError, match="http"):
+        create_user_provider_stub(name="X", base_url="file:///etc/passwd", model="m")
+
+
+def test_create_user_provider_stub_allows_http_localhost(tmp_path, monkeypatch):
+    # http is fine for a user's own custom/local endpoint (e.g. Ollama).
+    monkeypatch.setenv("FREELLMPOOL_CONFIG", str(tmp_path / "providers.toml"))
+    local_id = create_user_provider_stub(
+        name="Local", base_url="http://localhost:11434/v1", model="llama3"
+    )
+    assert local_id == "local"
+    assert 'base_url = "http://localhost:11434/v1"' in (tmp_path / "providers.toml").read_text()
+
+
+def test_discover_openai_models_rejects_non_http_scheme():
+    with pytest.raises(ValueError, match="http"):
+        discover_openai_models("file:///etc/passwd")
