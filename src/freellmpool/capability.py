@@ -65,6 +65,7 @@ _VARIANT_SUFFIX_RE = re.compile(
 )
 
 
+@lru_cache(maxsize=8192)
 def normalize_model_name(name: str) -> str:
     """A stable lookup key for a model name, robust to provider/vendor prefixes and
     packaging/date suffixes. The same function keys both the catalog names and the
@@ -154,13 +155,17 @@ def _read_scores(path: Path) -> dict[str, float]:
     except (OSError, json.JSONDecodeError):
         return {}
     raw = data.get("scores", {}) if isinstance(data, dict) else {}
+    if not isinstance(raw, dict):
+        return {}
     out: dict[str, float] = {}
     for key, val in raw.items():
         score = val.get("score") if isinstance(val, dict) else val
         if score is None:
             continue
         try:
-            out[str(key)] = float(score)
+            # Clamp to [0,1] so a corrupt or malicious cache can't inject an
+            # out-of-range capability that would distort routing.
+            out[str(key)] = max(0.0, min(1.0, float(score)))
         except (TypeError, ValueError):
             continue
     return out
@@ -581,8 +586,9 @@ def fetch_aa_scores(
     """
     from urllib.parse import urlsplit
 
-    if urlsplit(url).hostname not in _AA_ALLOWED_HOSTS:
-        raise ValueError(f"refusing to send the AA key to a non-AA host: {url!r}")
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.hostname not in _AA_ALLOWED_HOSTS:
+        raise ValueError(f"refusing to send the AA key to a non-AA/non-https URL: {url!r}")
     try:
         data = _get_json(url, timeout=timeout, headers={"x-api-key": api_key})
     except (OSError, ValueError, urllib.error.HTTPError):

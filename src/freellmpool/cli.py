@@ -555,7 +555,7 @@ def cmd_capability_status(args: argparse.Namespace) -> int:
     print(f"  user cache: {user if user.exists() else '(none — using bundled snapshot)'}")
     names = sorted({m.name for p in load_catalog() for m in p.models})
     scored = sorted(((model_capability(n, table), n) for n in names), reverse=True)
-    covered = sum(1 for n in names if model_capability(n, table) >= 0 and _in_table(n, table))
+    covered = sum(1 for n in names if _in_table(n, table))
     print(f"  catalog models with a benchmark score: {covered}/{len(names)} (rest use heuristic)")
     print(f"  top {args.limit} catalog models by capability:")
     for cap, name in scored[: args.limit]:
