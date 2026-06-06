@@ -21,8 +21,10 @@ Supported routes:
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .anthropic_shim import estimate_tokens, reply_to_message, reply_to_sse, request_to_chat
@@ -84,9 +86,11 @@ def make_handler(pool: Pool, api_key: str | None = None):
             (OpenAI style) or x-api-key (Anthropic style)."""
             if not api_key:
                 return True
-            if self.headers.get("Authorization", "") == f"Bearer {api_key}":
+            # Constant-time compares so the key can't be recovered byte-by-byte
+            # via response timing on a network-exposed proxy.
+            if hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {api_key}"):
                 return True
-            return self.headers.get("x-api-key", "") == api_key
+            return hmac.compare_digest(self.headers.get("x-api-key", ""), api_key)
 
         def do_GET(self) -> None:  # noqa: N802
             try:
@@ -153,6 +157,9 @@ def make_handler(pool: Pool, api_key: str | None = None):
                 return
             try:
                 raw = self.rfile.read(length) if length else b"{}"
+                if length and len(raw) < length:  # client aborted / truncated body
+                    self._error(400, "incomplete request body", "invalid_request_error")
+                    return
                 req = json.loads(raw or b"{}")
             except (json.JSONDecodeError, ValueError):
                 self._error(400, "invalid JSON body", "invalid_request_error")
@@ -404,6 +411,13 @@ def make_handler(pool: Pool, api_key: str | None = None):
                     self.wfile.write(block.encode())
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):  # pragma: no cover
+                pass
+            except Exception:  # noqa: BLE001
+                # Headers (200 event-stream) are already sent. A generator error must
+                # NOT bubble to do_POST, which would write an HTTP status line into the
+                # middle of the open stream. Stop writing and let the (Connection:
+                # close) socket end the stream — terminator framing differs per route
+                # (chat [DONE] vs Responses typed events), so don't guess one here.
                 pass
 
     return Handler
@@ -707,10 +721,10 @@ def _to_responses_object(reply) -> dict:
                 "id": f"msg-{reply.provider_id}",
                 "status": "completed",
                 "role": "assistant",
-                "content": [{"type": "output_text", "text": reply.text, "annotations": []}],
+                "content": [{"type": "output_text", "text": reply.text or "", "annotations": []}],
             }
         ],
-        "output_text": reply.text,  # convenience field the OpenAI SDK exposes
+        "output_text": reply.text or "",  # string per the Responses schema (never null)
         "usage": {
             "input_tokens": reply.prompt_tokens or 0,
             "output_tokens": reply.completion_tokens or 0,
@@ -732,7 +746,8 @@ def _responses_sse_events(reply):
         {"type": "response.created", "response": {"id": obj["id"], "status": "in_progress"}},
     )
     yield event(
-        "response.output_text.delta", {"type": "response.output_text.delta", "delta": reply.text}
+        "response.output_text.delta",
+        {"type": "response.output_text.delta", "delta": reply.text or ""},
     )
     yield event("response.completed", {"type": "response.completed", "response": obj})
 
@@ -748,8 +763,47 @@ def serve(
     if api_key is None:
         api_key = os.environ.get("FREELLMPOOL_PROXY_KEY") or None
     handler = make_handler(pool, api_key)
-    httpd = ThreadingHTTPServer((host, port), handler)
+    httpd = _BoundedThreadingHTTPServer((host, port), handler)
     # Worker threads are daemons so a stuck request can't block process/server
     # shutdown (Ctrl-C, container stop).
     httpd.daemon_threads = True
     return httpd
+
+
+_MAX_CONNECTIONS = 128  # cap concurrent worker threads/fds against a slowloris-style flood
+
+
+class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a hard cap on concurrent request threads, so a
+    flood of slow/trickle connections can't exhaust threads, fds, and memory.
+    Past the cap, new connections get a quick 503 and are dropped."""
+
+    daemon_threads = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._slots = threading.BoundedSemaphore(_MAX_CONNECTIONS)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            try:
+                request.sendall(
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    b"Connection: close\r\nContent-Length: 0\r\n\r\n"
+                )
+            except OSError:  # pragma: no cover - best-effort
+                pass
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            # The worker thread never started, so it won't release the slot — do it here.
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()

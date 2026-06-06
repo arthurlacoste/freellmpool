@@ -49,23 +49,29 @@ class Cache:
     @staticmethod
     def make_key(
         messages, model, providers, max_tokens, temperature, tools, tool_choice=None
-    ) -> str:
-        payload = json.dumps(
-            {
-                "messages": messages,
-                "model": model,
-                "providers": sorted(providers) if providers else None,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "tools": tools,
-                "tool_choice": tool_choice,
-            },
-            sort_keys=True,
-            default=str,
-        )
+    ) -> str | None:
+        try:
+            payload = json.dumps(
+                {
+                    "messages": messages,
+                    "model": model,
+                    "providers": sorted(providers) if providers else None,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "tools": tools,
+                    "tool_choice": tool_choice,
+                },
+                sort_keys=True,
+            )
+        except TypeError:
+            # Non-JSON-native content (an enum, object, ...): don't cache rather
+            # than risk a lossy str() key that could collide on different requests.
+            return None
         return hashlib.sha256(payload.encode()).hexdigest()
 
-    def get(self, key: str) -> dict | None:
+    def get(self, key: str | None) -> dict | None:
+        if not key:
+            return None
         cutoff = self._clock() - self.ttl
         try:
             with closing(self._conn()) as con:
@@ -81,12 +87,17 @@ class Cache:
         except (json.JSONDecodeError, ValueError):
             return None
 
-    def put(self, key: str, value: dict) -> None:
+    def put(self, key: str | None, value: dict) -> None:
+        if not key:
+            return
         try:
+            now = self._clock()
             with closing(self._conn()) as con, con:
                 con.execute(
                     "INSERT OR REPLACE INTO cache (key, value, created) VALUES (?, ?, ?)",
-                    (key, json.dumps(value), self._clock()),
+                    (key, json.dumps(value), now),
                 )
-        except sqlite3.Error:
+                # Reclaim expired rows on write so the table can't grow without bound.
+                con.execute("DELETE FROM cache WHERE created < ?", (now - self.ttl,))
+        except (sqlite3.Error, TypeError):
             pass  # cache is best-effort — never break a request over it

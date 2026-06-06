@@ -151,13 +151,17 @@ def test_discover_openai_models(monkeypatch):
 
     seen = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_open(request, timeout=None):  # OpenerDirector.open signature
         seen["url"] = request.full_url
         seen["auth"] = request.headers.get("Authorization")
         seen["timeout"] = timeout
         return Response()
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    # Discovery goes through the no-redirect opener (so the Bearer key can't be
+    # forwarded to a 3xx target); patch its .open.
+    from freellmpool import catalog
+
+    monkeypatch.setattr(catalog._NO_REDIRECT_OPENER, "open", fake_open)
 
     models = discover_openai_models("https://api.example.test/v1/", api_key="secret", timeout=3)
 

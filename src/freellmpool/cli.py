@@ -242,7 +242,9 @@ def _choose_provider(catalog, provider_id: str | None):
         needle = provider_id.lower()
         matches = [p for p in providers if p.id.lower() == needle or p.label.lower() == needle]
         if not matches:
-            raise SystemExit(f"provider is not configured in local providers.toml, or is keyless/external-only: {provider_id}")
+            raise SystemExit(
+                f"provider is not configured in local providers.toml, or is keyless/external-only: {provider_id}"
+            )
         return matches[0]
 
     print("Choose a provider to configure:")
@@ -293,7 +295,10 @@ def _import_or_create_provider(provider_name: str, args: argparse.Namespace) -> 
     if suggestion:
         provider_slug = suggestion.provider.slug.replace("-", "_")
         query_slug = provider_name.lower().replace("_", "-")
-        is_exact_provider = suggestion.exact and query_slug in {suggestion.provider.slug, provider_slug}
+        is_exact_provider = suggestion.exact and query_slug in {
+            suggestion.provider.slug,
+            provider_slug,
+        }
         if is_exact_provider or (
             not args.yes
             and _yes(
@@ -304,18 +309,26 @@ def _import_or_create_provider(provider_name: str, args: argparse.Namespace) -> 
             )
         ):
             local_id = import_external_provider_to_user_catalog(suggestion.provider.name)
-            print(f"Imported external provider '{suggestion.provider.name}' as local provider '{local_id}'.")
+            print(
+                f"Imported external provider '{suggestion.provider.name}' as local provider '{local_id}'."
+            )
             return local_id
 
     if args.yes and not args.base_url:
-        print("Provider not found. Pass --base-url to create it non-interactively.", file=sys.stderr)
+        print(
+            "Provider not found. Pass --base-url to create it non-interactively.", file=sys.stderr
+        )
         return None
 
-    if not args.yes and not _yes(input(f"Provider '{provider_name}' not found. Create it manually? [y/N] ")):
+    if not args.yes and not _yes(
+        input(f"Provider '{provider_name}' not found. Create it manually? [y/N] ")
+    ):
         return None
 
     base_url = args.base_url or input("OpenAI-compatible API base URL: ").strip()
-    model = args.model or ("" if args.yes else input("Default model id (blank to autodiscover): ").strip())
+    model = args.model or (
+        "" if args.yes else input("Default model id (blank to autodiscover): ").strip()
+    )
     if not model:
         api_key = getattr(args, "value", None)
         if not api_key and not args.yes:
@@ -446,7 +459,9 @@ def cmd_capacity_status(args: argparse.Namespace) -> int:
     linked.discard(None)
     external_only = [item for item in external if match_local_provider(item, local_catalog) is None]
 
-    report = build_capacity_report(target=args.target, inventory=load_inventory(), catalog=local_catalog)
+    report = build_capacity_report(
+        target=args.target, inventory=load_inventory(), catalog=local_catalog
+    )
     print(f"LLM capacity: {report.healthy_count}/{args.target} healthy providers")
     print(cache_note)
     if external:
@@ -464,7 +479,9 @@ def cmd_capacity_status(args: argparse.Namespace) -> int:
         print("External-only catalog candidates, not in local providers.toml:")
         for item in external_only[: args.external_limit]:
             score = item.best_tpd or item.best_rpd or item.best_rpm
-            print(f"  external    {item.name:<24} score={score:<8} models={item.model_count:<3} link={item.url or '-'}")
+            print(
+                f"  external    {item.name:<24} score={score:<8} models={item.model_count:<3} link={item.url or '-'}"
+            )
     return 0
 
 
@@ -496,7 +513,9 @@ def cmd_catalog_status(args: argparse.Namespace) -> int:
     print(f"Cache: {path}")
     for provider in providers[: args.limit]:
         score = provider.best_tpd or provider.best_rpd or provider.best_rpm
-        print(f"  {provider.name:<28} score={score:<8} models={provider.model_count:<3} base={provider.base_url or '-'}")
+        print(
+            f"  {provider.name:<28} score={score:<8} models={provider.model_count:<3} base={provider.base_url or '-'}"
+        )
     return 0
 
 
@@ -609,10 +628,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_prov = sub.add_parser("providers", help="list providers and configuration status")
     prov_sub = p_prov.add_subparsers(dest="providers_command")
-    p_prov_health = prov_sub.add_parser("health", help="test configured providers with a tiny request")
+    p_prov_health = prov_sub.add_parser(
+        "health", help="test configured providers with a tiny request"
+    )
     p_prov_health.add_argument("-m", "--model", help="pin one model name to test on every provider")
     p_prov_health.add_argument("-p", "--providers", help="comma-separated provider ids to test")
-    p_prov_health.add_argument("--timeout", type=float, default=20.0, help="per-call timeout seconds")
+    p_prov_health.add_argument(
+        "--timeout", type=float, default=20.0, help="per-call timeout seconds"
+    )
     p_prov_health.set_defaults(func=cmd_providers_health)
     p_prov.set_defaults(func=cmd_providers)
 
@@ -632,11 +655,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_keys = sub.add_parser("keys", help="inspect manually configured provider keys")
     keys_sub = p_keys.add_subparsers(dest="keys_command", required=True)
     p_keys_status = keys_sub.add_parser("status", help="show key inventory and provider readiness")
-    p_keys_status.add_argument("--target", type=int, default=5, help="desired healthy provider count")
+    p_keys_status.add_argument(
+        "--target", type=int, default=5, help="desired healthy provider count"
+    )
     p_keys_status.add_argument("--all", action="store_true", help="include missing providers")
     p_keys_status.set_defaults(func=cmd_keys_status)
-    p_keys_checklist = keys_sub.add_parser("checklist", help="manual actions to reach target capacity")
-    p_keys_checklist.add_argument("--target", type=int, default=5, help="desired healthy provider count")
+    p_keys_checklist = keys_sub.add_parser(
+        "checklist", help="manual actions to reach target capacity"
+    )
+    p_keys_checklist.add_argument(
+        "--target", type=int, default=5, help="desired healthy provider count"
+    )
     p_keys_checklist.set_defaults(func=cmd_keys_checklist)
     p_keys_add = keys_sub.add_parser("add")
     p_keys_add.add_argument("provider_arg", nargs="?", help="provider id or external provider name")
@@ -650,23 +679,45 @@ def build_parser() -> argparse.ArgumentParser:
     p_keys_add.add_argument("-y", "--yes", action="store_true")
     p_keys_add.set_defaults(func=cmd_keys_add)
 
-    p_catalog = sub.add_parser("catalog", help="sync and inspect advisory external provider metadata")
+    p_catalog = sub.add_parser(
+        "catalog", help="sync and inspect advisory external provider metadata"
+    )
     catalog_sub = p_catalog.add_subparsers(dest="catalog_command", required=True)
-    p_catalog_sync = catalog_sub.add_parser("sync", help="sync mnfst/awesome-free-llm-apis metadata into a local cache")
-    p_catalog_sync.add_argument("--timeout", type=float, default=20.0, help="download timeout seconds")
+    p_catalog_sync = catalog_sub.add_parser(
+        "sync", help="sync mnfst/awesome-free-llm-apis metadata into a local cache"
+    )
+    p_catalog_sync.add_argument(
+        "--timeout", type=float, default=20.0, help="download timeout seconds"
+    )
     p_catalog_sync.set_defaults(func=cmd_catalog_sync)
-    p_catalog_status = catalog_sub.add_parser("status", help="show cached external provider metadata")
-    p_catalog_status.add_argument("--limit", type=int, default=10, help="number of providers to show")
+    p_catalog_status = catalog_sub.add_parser(
+        "status", help="show cached external provider metadata"
+    )
+    p_catalog_status.add_argument(
+        "--limit", type=int, default=10, help="number of providers to show"
+    )
     p_catalog_status.set_defaults(func=cmd_catalog_status)
 
     p_capacity = sub.add_parser("capacity", help="summarize legitimate LLM capacity")
     capacity_sub = p_capacity.add_subparsers(dest="capacity_command", required=True)
-    p_capacity_status = capacity_sub.add_parser("status", help="show provider capacity and quota hints")
-    p_capacity_status.add_argument("--target", type=int, default=5, help="desired healthy provider count")
+    p_capacity_status = capacity_sub.add_parser(
+        "status", help="show provider capacity and quota hints"
+    )
+    p_capacity_status.add_argument(
+        "--target", type=int, default=5, help="desired healthy provider count"
+    )
     p_capacity_status.add_argument("--all", action="store_true", help="include missing providers")
-    p_capacity_status.add_argument("--no-catalog-sync", action="store_true", help="use external catalog cache without refreshing")
-    p_capacity_status.add_argument("--catalog-timeout", type=float, default=8.0, help="external catalog sync timeout seconds")
-    p_capacity_status.add_argument("--external-limit", type=int, default=8, help="external-only candidates to show with --all")
+    p_capacity_status.add_argument(
+        "--no-catalog-sync",
+        action="store_true",
+        help="use external catalog cache without refreshing",
+    )
+    p_capacity_status.add_argument(
+        "--catalog-timeout", type=float, default=8.0, help="external catalog sync timeout seconds"
+    )
+    p_capacity_status.add_argument(
+        "--external-limit", type=int, default=8, help="external-only candidates to show with --all"
+    )
     p_capacity_status.set_defaults(func=cmd_capacity_status)
 
     p_bench = sub.add_parser(
@@ -707,7 +758,13 @@ def main(argv: list[str] | None = None) -> int:
     configure_logging_from_env()  # honor FREELLMPOOL_LOG=<level> for the CLI/proxy
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (EOFError, KeyboardInterrupt):
+        # No input on a non-TTY/piped stdin (or Ctrl-D/Ctrl-C at a prompt) —
+        # exit cleanly instead of dumping a traceback.
+        print("\nfreellmpool: cancelled (no input)", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -48,6 +49,17 @@ def _is_thinking(model: str) -> bool:
 
 def _strip_think(text: str) -> str:
     return _THINK_RE.sub("", text).strip()
+
+
+def _content_text(content) -> str:
+    """Coerce an OpenAI-style ``content`` to text. Providers may return a plain
+    string, a list of content-part dicts (``[{"type":"text","text":...}]``), or
+    null — none of which should crash response parsing."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(p.get("text") or "" for p in content if isinstance(p, dict))
+    return ""
 
 
 @dataclass
@@ -139,7 +151,11 @@ class _StreamLines:
 def default_stream_post(url: str, headers: dict, json_body: dict, timeout: float):
     """Open a streaming POST on the pooled client and return (status, line iter)."""
     cm = _client().stream("POST", url, headers=headers, json=json_body, timeout=_timeout(timeout))
-    resp = cm.__enter__()
+    try:
+        resp = cm.__enter__()
+    except BaseException:  # opening the stream failed — release the connection
+        cm.__exit__(*sys.exc_info())
+        raise
     return resp.status_code, _StreamLines(cm, resp)
 
 
@@ -239,7 +255,7 @@ def _to_gemini_contents(messages: list[Message]) -> tuple[dict | None, list[dict
     contents: list[dict] = []
     for msg in messages:
         role = msg.get("role", "user")
-        text = msg.get("content", "")
+        text = _content_text(msg.get("content"))
         if role == "system":
             system = f"{system}\n{text}" if system else text
             continue
@@ -408,8 +424,12 @@ def _call_openai(
     choices = result.body.get("choices") or []
     if not choices:
         raise ProviderHTTPError(502, "no choices in response", retryable=True)
+    if not isinstance(choices[0], dict):
+        raise ProviderHTTPError(502, "malformed choice in response", retryable=True)
     message = choices[0].get("message") or {}
-    text = _strip_think(message.get("content") or "")
+    if not isinstance(message, dict):
+        raise ProviderHTTPError(502, "malformed message in response", retryable=True)
+    text = _strip_think(_content_text(message.get("content")))
     usage = result.body.get("usage") or {}
     return Reply(
         text=text,
@@ -474,10 +494,9 @@ def _call_gemini(
 ) -> Reply:
     system_instruction, contents = _to_gemini_contents(messages)
     url = f"{provider.base_url}/models/{model}:generateContent"
-    headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": api_key,
-    }
+    headers = {"Content-Type": "application/json"}
+    if api_key:  # keyless gemini-shape providers (if any) send no auth header
+        headers["x-goog-api-key"] = api_key
     body: dict = {
         "contents": contents,
         "generationConfig": {
@@ -497,8 +516,10 @@ def _call_gemini(
     candidates = result.body.get("candidates") or []
     if not candidates:
         raise ProviderHTTPError(502, "no candidates in response", retryable=True)
+    if not isinstance(candidates[0], dict):
+        raise ProviderHTTPError(502, "malformed candidate in response", retryable=True)
     parts = (candidates[0].get("content") or {}).get("parts") or []
-    text = _strip_think("".join(p.get("text", "") for p in parts))
+    text = _strip_think("".join(p.get("text") or "" for p in parts if isinstance(p, dict)))
     usage = result.body.get("usageMetadata") or {}
     return Reply(
         text=text,

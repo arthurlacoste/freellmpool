@@ -152,11 +152,21 @@ def upsert_config_key(env_var: str, value: str, path: Path | None = None) -> Pat
     keys[env_var] = value
     data["keys"] = keys
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(dump_simple_toml(data), encoding="utf-8")
+    # Open at 0o600 *before* writing, so the secret bytes never exist at a
+    # world-readable mode (closes the create-then-chmod TOCTOU window). fchmod
+    # also narrows an already-existing file, which O_CREAT's mode would not touch.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+        fh = os.fdopen(fd, "w", encoding="utf-8")  # takes ownership of fd
+    except BaseException:
+        os.close(fd)  # fdopen failed — close the raw fd ourselves
+        raise
+    with fh:  # closes fd on exit
+        try:
+            os.fchmod(fd, 0o600)  # narrow an already-existing file too
+        except OSError:
+            pass
+        fh.write(dump_simple_toml(data))
     return path
 
 

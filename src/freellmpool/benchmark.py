@@ -111,7 +111,8 @@ def render_table(rows: list[BenchRow]) -> str:
             note = f"{r.tokens} tok" if r.tokens else ""
             lines.append(f"  {r.target:<{width}}  {'ok':<6}  {lat:>9}  {note}")
         else:
-            note = (r.error or "").splitlines()[0][:60]
+            err_lines = (r.error or "").splitlines()
+            note = err_lines[0][:60] if err_lines else ""
             lines.append(f"  {r.target:<{width}}  {'FAIL':<6}  {'-':>9}  {note}")
     ok = sum(1 for r in rows if r.ok)
     lines.append(f"\n  {ok}/{len(rows)} providers responded")

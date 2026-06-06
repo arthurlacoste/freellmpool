@@ -81,7 +81,7 @@ def test_all_too_small_raises_context_window_exceeded():
         pool.chat([{"role": "user", "content": "hello"}])
     assert isinstance(ei.value, AllProvidersExhausted)  # back-compat
     assert "tokens" in str(ei.value)
-    assert pool._ctx_limits["small/m"] == 4096  # learned the limit
+    assert pool._ctx_limits["small/m"][0] == 4096  # learned the limit
 
 
 def test_declared_context_skips_smaller_routes_to_bigger():
@@ -102,7 +102,7 @@ def test_learns_from_error_then_skips_on_repeat():
     big_msg = [{"role": "user", "content": "z" * 24000}]  # est 6000, needed ~7024 > 4096
     with pytest.raises(ContextWindowExceeded):
         pool.chat(big_msg)
-    assert len(post.calls) == 1 and pool._ctx_limits["a/a1"] == 4096
+    assert len(post.calls) == 1 and pool._ctx_limits["a/a1"][0] == 4096
     # Second oversized request: a/a1 is now skipped proactively (not called again).
     with pytest.raises(ContextWindowExceeded):
         pool.chat(big_msg)
@@ -157,7 +157,7 @@ def test_learned_limit_beats_larger_declared_context():
     big = [{"role": "user", "content": "z" * 24000}]  # needed ~7024: < 128000 but > 4096
     with pytest.raises(ContextWindowExceeded):
         pool.chat(big)
-    assert pool._ctx_limits["a/m"] == 4096
+    assert pool._ctx_limits["a/m"][0] == 4096
     with pytest.raises(ContextWindowExceeded):
         pool.chat(big)
     assert len(post.calls) == 1  # second request skipped a/m proactively (learned 4k)

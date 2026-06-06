@@ -57,7 +57,9 @@ def resolve_alias(name: str, env: dict[str, str] | None = None) -> str:
     unknown names pass through unchanged."""
     env = env if env is not None else dict(os.environ)
     target = _norm(name)
-    for key, value in env.items():
+    # Sorted so that when two env vars normalize to the same alias, the winner is
+    # deterministic rather than dict-iteration-order dependent.
+    for key, value in sorted(env.items()):
         if key.startswith(_ALIAS_ENV_PREFIX) and _norm(key[len(_ALIAS_ENV_PREFIX) :]) == target:
             return value or name
     cfg_aliases = load_config_file(env).get("aliases", {})
@@ -123,28 +125,48 @@ def settings(env: dict[str, str] | None = None) -> dict:
     return load_config_file(env).get("settings", {})
 
 
+def _maybe_int(value, *, positive: bool = False) -> int | None:
+    """Best-effort int from possibly-bad input; None on failure (and, when
+    ``positive``, on a non-positive value — so ``context = 0`` reads as unknown)."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    if positive and n <= 0:
+        return None
+    return n
+
+
 def _parse_rows(rows: list) -> list[Provider]:
+    """Parse provider rows tolerantly: a malformed row (missing id/base_url/name,
+    bad int) is skipped, not fatal, so one typo in a user catalog can't brick the
+    whole tool. The packaged catalog is valid, so this is a no-op for it."""
     providers: list[Provider] = []
     for row in rows:
-        models = tuple(
-            Model(
-                name=m["name"],
-                rpd=int(m.get("rpd", 0)),
-                enabled=bool(m.get("enabled", True)),
-                context=int(m["context"]) if m.get("context") is not None else None,
+        if not isinstance(row, dict) or not row.get("id") or not row.get("base_url"):
+            continue
+        models = []
+        for m in row.get("models", []):
+            if not isinstance(m, dict) or not m.get("name"):
+                continue
+            models.append(
+                Model(
+                    name=str(m["name"]),
+                    rpd=_maybe_int(m.get("rpd", 0)) or 0,
+                    enabled=bool(m.get("enabled", True)),
+                    context=_maybe_int(m.get("context"), positive=True),
+                )
             )
-            for m in row.get("models", [])
-        )
         providers.append(
             Provider(
-                id=row["id"],
-                label=row.get("label", row["id"]),
-                adapter=row.get("adapter", "openai"),
-                base_url=row["base_url"].rstrip("/"),
+                id=str(row["id"]),
+                label=str(row.get("label", row["id"])),
+                adapter=str(row.get("adapter", "openai")),
+                base_url=str(row["base_url"]).rstrip("/"),
                 key_env=row.get("key_env"),
-                auth=row.get("auth", "bearer"),
+                auth=str(row.get("auth", "bearer")),
                 key_optional=bool(row.get("key_optional", False)),
-                models=models,
+                models=tuple(models),
                 extra_env=tuple(row.get("extra_env", [])),
             )
         )
@@ -179,8 +201,11 @@ def load_catalog(path: Path | None = None) -> list[Provider]:
     if path is None:
         user_path = _user_catalog_path()
         if user_path is not None:
-            with user_path.open("rb") as fh:
-                user_providers = _parse_catalog(tomllib.load(fh))
+            try:
+                with user_path.open("rb") as fh:
+                    user_providers = _parse_catalog(tomllib.load(fh))
+            except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError, AttributeError):
+                user_providers = []  # a broken user catalog must not brick the tool
             by_id = {p.id: p for p in providers}
             for up in user_providers:
                 by_id[up.id] = up

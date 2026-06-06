@@ -36,18 +36,27 @@ _TOKENS_PER_CHAR = 0.25  # ~4 chars/token; see module docstring on why this is r
 def estimate_input_tokens(messages, tools=None) -> int:
     """A rough token estimate of a request's input (messages + any tools).
 
-    Counts string ``content`` and the text parts of multimodal content, plus the
-    serialized ``tools`` (always sent in the request body). Never raises.
+    Counts string ``content`` and the text parts of multimodal content, plus any
+    assistant ``tool_calls`` and the serialized ``tools`` (both sent in the body).
+    Never raises. The chars/4 estimate under-counts CJK/code, so it is only used to
+    skip a window already known too small — never to truncate.
     """
     chars = 0
     for m in messages or []:
-        content = m.get("content") if isinstance(m, dict) else None
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
         if isinstance(content, str):
             chars += len(content)
         elif isinstance(content, list):  # multimodal parts
             for part in content:
                 if isinstance(part, dict) and isinstance(part.get("text"), str):
                     chars += len(part["text"])
+        if m.get("tool_calls"):  # assistant function-call turns can be large
+            try:
+                chars += len(json.dumps(m["tool_calls"]))
+            except (TypeError, ValueError):  # pragma: no cover - defensive
+                pass
     if tools:
         try:
             chars += len(json.dumps(tools))

@@ -324,7 +324,7 @@ class AsyncPool:
             cache_key = p._cache.make_key(
                 messages, model, provider_list, max_tokens, temperature, tools, tool_choice
             )
-            hit = p._cache.get(cache_key)
+            hit = await asyncio.to_thread(p._cache.get, cache_key)  # blocking sqlite off-loop
             if hit is not None:
                 p._bump_stats(cache_hits=1)
                 return Reply(
@@ -428,7 +428,9 @@ class AsyncPool:
                 latency_ms=round(latency_ms, 1),
                 attempts=len(attempts) + 1,
             )
-            p.quota.record(target.provider.id, target.model)
+            # Blocking flock/sqlite — run off the event loop so contention can't
+            # stall other in-flight async requests.
+            await asyncio.to_thread(p.quota.record, target.provider.id, target.model)
             reply.attempts = len(attempts) + 1
             p._bump_stats(
                 requests=1,
@@ -436,7 +438,8 @@ class AsyncPool:
                 completion_tokens=reply.completion_tokens or 0,
             )
             if p._cache is not None and cache_key is not None:
-                p._cache.put(
+                await asyncio.to_thread(
+                    p._cache.put,
                     cache_key,
                     {
                         "text": reply.text,

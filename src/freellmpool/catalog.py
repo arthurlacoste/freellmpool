@@ -52,6 +52,18 @@ def default_external_catalog_path() -> Path:
     return Path.home() / ".config" / "freellmpool" / "provider_catalog.json"
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never auto-follow redirects — urllib raises HTTPError on a 3xx instead, so a
+    request carrying an Authorization header can't forward the key to a redirect
+    target (credential leak / SSRF)."""
+
+    def redirect_request(self, *args, **kwargs):  # noqa: D102
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect())
+
+
 @dataclass(frozen=True)
 class ExternalProvider:
     name: str
@@ -83,7 +95,9 @@ def sync_external_catalog(
     timeout: float = 20.0,
 ) -> tuple[Path, list[ExternalProvider]]:
     path = path or default_external_catalog_path()
-    # source_url is the fixed https default (or a caller-provided override).
+    # Validate the source: https-only, no file:// / SSRF even from a caller override.
+    source_url = _validated_base_url(source_url, https_only=True, what="external catalog")
+    # source_url is the fixed https default (or a validated caller-provided override).
     with urllib.request.urlopen(source_url, timeout=timeout) as response:
         raw_bytes = response.read(_MAX_CATALOG_BYTES + 1)
     if len(raw_bytes) > _MAX_CATALOG_BYTES:
@@ -287,6 +301,8 @@ def import_external_provider_to_user_catalog(query: str) -> str:
         str(match.get("baseUrl") or ""), https_only=True, what=f"external provider {query}"
     )
     provider_id = _slug(str(match.get("name") or query)).replace("-", "_")
+    if not provider_id:
+        raise ValueError(f"external provider name does not produce a valid id: {query}")
     key_env = provider_id.upper() + "_API_KEY"
     models = []
     for model in match.get("models", []):
@@ -383,7 +399,8 @@ def discover_openai_models(
         headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        # No-redirect opener: never forward the Bearer key to a 3xx target.
+        with _NO_REDIRECT_OPENER.open(request, timeout=timeout) as response:
             raw_bytes = response.read(_MAX_DISCOVER_BYTES + 1)
         if len(raw_bytes) > _MAX_DISCOVER_BYTES:
             raise ValueError(f"model discovery response exceeds {_MAX_DISCOVER_BYTES} bytes")

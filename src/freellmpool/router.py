@@ -37,6 +37,13 @@ from .models import EmbedReply, Provider, Reply
 from .observe import EventHook, emit
 from .quota import QuotaStore
 
+# A parsed "context limit" below this is treated as garbled/implausible and not
+# learned, so one bad provider error can't poison routing pool-wide.
+_MIN_LEARNABLE_CONTEXT = 256
+# Learned limits expire so a transient/edge provider error can't park a model for
+# the whole process lifetime (providers drift; some report per-request limits).
+_CTX_LIMIT_TTL = 1800.0  # seconds (30 min)
+
 
 def _is_health_failure(exc: Exception) -> bool:
     """Whether an exception reflects provider *availability* (so it should count
@@ -107,7 +114,7 @@ class Pool:
         # Context-window limits learned from provider errors, keyed by provider/model.
         # Lets the pool stop routing oversized requests to models it has seen reject
         # them, without a hand-maintained per-model context table.
-        self._ctx_limits: dict[str, int] = {}
+        self._ctx_limits: dict[str, tuple[int, float]] = {}  # name -> (limit, learned_at)
         self._ctx_lock = threading.Lock()
 
     def _bump_stats(self, **deltas: int) -> None:
@@ -131,17 +138,31 @@ class Pool:
 
     def _effective_context(self, target: Target) -> int | None:
         """The tightest known context window for a target: the smaller of its
-        declared size and any limit learned from a prior error (or None)."""
+        declared size and any (non-expired) limit learned from a prior error."""
+        learned = None
         with self._ctx_lock:
-            learned = self._ctx_limits.get(target.name)
+            entry = self._ctx_limits.get(target.name)
+        if entry is not None and self._clock() - entry[1] < _CTX_LIMIT_TTL:
+            learned = entry[0]
         sizes = [v for v in (target.context, learned) if v is not None]
         return min(sizes) if sizes else None
 
     def _learn_context_limit(self, target_name: str, limit: int) -> None:
-        """Record a context-window limit revealed by a provider error (tighter wins)."""
+        """Record a context-window limit revealed by a provider error (tighter wins,
+        with a TTL). Implausibly small figures are ignored so a garbled error can't
+        park a model."""
+        if limit < _MIN_LEARNABLE_CONTEXT:
+            return
+        now = self._clock()
         with self._ctx_lock:
             prev = self._ctx_limits.get(target_name)
-            self._ctx_limits[target_name] = min(prev, limit) if prev is not None else limit
+            # Keep a still-fresh, equal-or-tighter prior untouched — so a looser (or
+            # repeated) value can't keep refreshing the tight limit's clock and defeat
+            # the TTL. Only a strictly tighter new observation (or an expired/absent
+            # prior) updates the entry and its timestamp.
+            if prev is not None and now - prev[1] < _CTX_LIMIT_TTL and prev[0] <= limit:
+                return
+            self._ctx_limits[target_name] = (limit, now)
 
     # ---- construction -------------------------------------------------
 
@@ -514,10 +535,12 @@ class Pool:
         non_ctx_failure = False
         for target in sequence:
             if target.provider.id in rate_limited:
+                attempts.append((target.name, "skipped (provider rate-limited this request)"))
                 continue
             api_key = target.provider.api_key(self.env)
             if api_key is None and not target.provider.keyless:
                 non_ctx_failure = True
+                attempts.append((target.name, "missing api key"))
                 continue
             cap = self._effective_context(target)
             if cap is not None and needed > cap:

@@ -51,6 +51,30 @@ healthy. From [#7](https://github.com/0xzr/freellmpool/pull/7) by
   fetches http(s) only (no `file://`).
 - External-catalog and model-discovery downloads are size-capped.
 
+### Robustness (full-codebase audit)
+- **Never crash on a provider's response shape.** OpenAI-style list `content`
+  (content-parts), `null` content, and malformed `choices`/`message`/Gemini parts
+  are coerced or rejected cleanly instead of throwing — so a valid completion is
+  no longer discarded and the provider penalized.
+- **A typo in the user `providers.toml` no longer bricks the tool.** Catalog
+  parsing is tolerant: a bad row (missing id/name/base_url, non-int `rpd`/`context`)
+  is skipped and a broken-TOML user catalog is ignored, instead of an uncaught
+  traceback across every CLI command, the proxy, and MCP. `context = 0` reads as
+  unknown, not "too long".
+- **CLI no longer dumps a traceback on EOF/Ctrl-D** (piped/CI stdin) in the
+  interactive `keys add` flow.
+- Learned context limits ignore implausibly-small figures (can't be poisoned by
+  one bad error); the input estimate now counts `tool_calls`.
+- **Security:** the proxy auth compare is constant-time (`hmac.compare_digest`);
+  the key inventory writes secrets at `0o600` atomically (no world-readable
+  window); model discovery no longer follows redirects (can't forward the Bearer
+  key); `sync_external_catalog` validates the source scheme.
+- The proxy caps concurrent connections (slowloris-resistant), rejects truncated
+  bodies, won't write an HTTP status line into an open SSE stream, and emits a
+  string (never `null`) for Responses `output_text`. The response cache prunes
+  expired rows and refuses to cache non-JSON requests. The async path off-loads
+  blocking quota/cache I/O.
+
 ### Catalog
 - Re-vetted the live model set against every provider: 22 models that moved to a
   paid tier (402), were removed (404), or became tier-gated (403) are now

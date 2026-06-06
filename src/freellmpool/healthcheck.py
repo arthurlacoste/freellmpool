@@ -18,7 +18,9 @@ class HealthRow:
         return self.status == "ok"
 
 
-def run_healthcheck(pool: Pool, *, model: str | None = None, providers=None, timeout: float = 20.0) -> list[HealthRow]:
+def run_healthcheck(
+    pool: Pool, *, model: str | None = None, providers=None, timeout: float = 20.0
+) -> list[HealthRow]:
     rows = benchmark(pool, model=model, providers=providers, timeout=timeout, max_tokens=8)
     out: list[HealthRow] = []
     for row in rows:
@@ -39,11 +41,14 @@ def render_health_table(rows: list[HealthRow]) -> str:
     lines = [f"  {'provider/model':<{width}}  {'status':<12}  {'latency':>9}  note"]
     for row in rows:
         latency = f"{row.latency_ms:,.0f} ms" if row.latency_ms is not None else "-"
-        lines.append(f"  {row.target:<{width}}  {row.status:<12}  {latency:>9}  {_short_note(row.note)}")
+        lines.append(
+            f"  {row.target:<{width}}  {row.status:<12}  {latency:>9}  {_short_note(row.note)}"
+        )
     ok = sum(1 for row in rows if row.ok)
     lines.append(f"\n  {ok}/{len(rows)} providers ok")
     return "\n".join(lines)
 
 
 def _short_note(value: str) -> str:
-    return value.splitlines()[0][:80]
+    lines = (value or "").splitlines()
+    return lines[0][:80] if lines else ""
