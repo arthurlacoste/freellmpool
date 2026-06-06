@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import math
 import os
 import re
 import urllib.error
@@ -163,11 +164,14 @@ def _read_scores(path: Path) -> dict[str, float]:
         if score is None:
             continue
         try:
-            # Clamp to [0,1] so a corrupt or malicious cache can't inject an
-            # out-of-range capability that would distort routing.
-            out[str(key)] = max(0.0, min(1.0, float(score)))
+            value = float(score)
         except (TypeError, ValueError):
             continue
+        if not math.isfinite(value):  # reject NaN/inf rather than clamp them to 1.0
+            continue
+        # Clamp to [0,1] so a corrupt or malicious cache can't inject an
+        # out-of-range capability that would distort routing.
+        out[str(key)] = max(0.0, min(1.0, value))
     return out
 
 

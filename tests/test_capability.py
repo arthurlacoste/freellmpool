@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from freellmpool import capability as c
 
 
@@ -110,3 +112,55 @@ def test_model_capability_prefers_table_then_heuristic(tmp_path, monkeypatch):
     assert c.model_capability("my-model") == 0.77
     # a model in neither the table nor the bundle falls back to the heuristic neutral
     assert c.model_capability("totally-unknown-zzz") == 0.5
+
+
+def test_read_scores_clamps_and_rejects_bad_values(tmp_path):
+    f = tmp_path / "cap.json"
+    f.write_text(
+        json.dumps(
+            {
+                "scores": {
+                    "hi": 999,  # clamps to 1.0
+                    "lo": -5,  # clamps to 0.0
+                    "ok": {"score": 0.4},
+                    "nan": float("nan"),
+                    "inf": float("inf"),
+                    "str": "abc",
+                    "none": {"score": None},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = c._read_scores(f)
+    assert out["hi"] == 1.0 and out["lo"] == 0.0 and out["ok"] == 0.4
+    assert all(0.0 <= v <= 1.0 for v in out.values())
+    for bad in ("nan", "inf", "str", "none"):  # non-finite / unparseable dropped
+        assert bad not in out
+
+
+def test_read_scores_rejects_non_dict_payloads(tmp_path):
+    for body in ("[1,2,3]", "42", "{not json", '{"scores": [1,2]}'):
+        f = tmp_path / "x.json"
+        f.write_text(body, encoding="utf-8")
+        assert c._read_scores(f) == {}
+
+
+def test_fetch_aa_scores_refuses_unsafe_url_without_calling_network(monkeypatch):
+    import freellmpool.capability as cap
+
+    called = {"n": 0}
+
+    def boom(*a, **k):
+        called["n"] += 1
+        raise AssertionError("network must not be called for an unsafe AA URL")
+
+    monkeypatch.setattr(cap, "_get_json", boom)
+    for bad in (
+        "http://artificialanalysis.ai/x",
+        "https://evil.example/x",
+        "https://evil.artificialanalysis.ai.attacker.com/x",
+    ):
+        with pytest.raises(ValueError):
+            cap.fetch_aa_scores(api_key="secret", url=bad, timeout=1)
+    assert called["n"] == 0  # key never sent
