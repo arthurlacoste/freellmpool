@@ -4,11 +4,35 @@ from __future__ import annotations
 
 from helpers import make_post
 
+from freellmpool import capability as _capability
+from freellmpool.models import Model, Provider
 from freellmpool.router import Pool
 
 
 def _names(pool, **kw):
     return [t.name for t in pool._order(pool._all_targets(**kw))]
+
+
+def _quality_pool(tmp_path, monkeypatch, quota, *, scores, models):
+    """A quality-routing pool over ``models`` with an injected capability table."""
+    import json
+
+    cap_file = tmp_path / "cap.json"
+    cap_file.write_text(
+        json.dumps({"scores": {k: {"score": v, "source": "arena"} for k, v in scores.items()}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FREELLMPOOL_CAPABILITY_FILE", str(cap_file))
+    _capability._table_cached.cache_clear()
+    provider = Provider(
+        id="x",
+        label="X",
+        adapter="openai",
+        base_url="https://x.test/v1",
+        key_env="X_KEY",
+        models=tuple(models),
+    )
+    return Pool([provider], quota=quota, env={"X_KEY": "k"}, post=make_post({}), routing="quality")
 
 
 def test_fair_default_is_least_used(providers, env, quota):
@@ -88,3 +112,46 @@ def test_402_capability_error_not_health_failure(providers, env, quota):
     pool.chat([{"role": "user", "content": "hi"}], providers=["alpha", "beta"])
     st = pool.metrics.get("alpha/alpha-small")
     assert st is None or st.fail == 0
+
+
+def test_quality_matches_difficulty_to_capability(tmp_path, monkeypatch, quota):
+    pool = _quality_pool(
+        tmp_path,
+        monkeypatch,
+        quota,
+        scores={"big": 0.9, "small": 0.2},
+        models=[Model("big"), Model("small")],
+    )
+    targets = pool._all_targets()
+    # hard prompt → strong model first; easy prompt → light model first (rationing)
+    assert pool._order(targets, difficulty=0.9)[0].model == "big"
+    assert pool._order(targets, difficulty=0.1)[0].model == "small"
+
+
+def test_quality_over_budget_model_sinks(tmp_path, monkeypatch, quota):
+    pool = _quality_pool(
+        tmp_path,
+        monkeypatch,
+        quota,
+        scores={"big": 0.9, "small": 0.2},
+        models=[Model("big", rpd=1), Model("small")],
+    )
+    quota.record("x", "big", 1)  # big is now over its daily cap
+    # even for a hard prompt, an over-budget strong model sinks behind a usable one
+    order = [t.model for t in pool._order(pool._all_targets(), difficulty=0.9)]
+    assert order[0] == "small"
+    assert order[-1] == "big"  # still reachable, just last
+
+
+def test_quality_failing_model_sinks(tmp_path, monkeypatch, quota):
+    pool = _quality_pool(
+        tmp_path,
+        monkeypatch,
+        quota,
+        scores={"big": 0.9, "small": 0.2},
+        models=[Model("big"), Model("small")],
+    )
+    for _ in range(3):  # enough samples to mark "big" as failing
+        pool.metrics.record_failure("x/big", "boom")
+    order = [t.model for t in pool._order(pool._all_targets(), difficulty=0.9)]
+    assert order[0] == "small"  # a healthy light model beats a failing strong one
