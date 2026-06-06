@@ -63,8 +63,10 @@ client with three adapters, a quota counter, and a proxy that wraps the router.
 
 1. `Pool.chat(messages, ...)` builds candidate `(provider, model)` targets,
    filtered by any `model`/`providers` constraints.
-2. Targets are sorted least-used-today first; pools over their daily hint sink
-   to the back but remain reachable as a last resort.
+2. Providers are sorted least-used-today first, then targets inside each provider
+   are sorted least-used-first. Pools over their daily hint sink to the back but
+   remain reachable as a last resort. `FREELLMPOOL_ROUTING=legacy` restores the
+   old per-target ordering.
 3. For each target: call the provider; on a non-empty success, record one unit
    of quota and return the normalized `Reply`.
 4. If every target fails, raise `AllProvidersExhausted` with the per-target

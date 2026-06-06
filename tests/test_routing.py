@@ -19,6 +19,22 @@ def test_fair_default_is_least_used(providers, env, quota):
     assert "beta/beta-1" in order
 
 
+def test_fair_default_balances_by_provider_before_model(providers, env, quota):
+    quota.record("alpha", "alpha-small", 1)
+    pool = Pool(providers, quota=quota, env=env, post=make_post({}))
+    order = _names(pool, include=["alpha", "beta"])
+
+    assert order.index("beta/beta-1") < order.index("alpha/alpha-big")
+
+
+def test_legacy_routing_balances_by_model(providers, env, quota):
+    quota.record("alpha", "alpha-small", 1)
+    pool = Pool(providers, quota=quota, env=env, post=make_post({}), routing="legacy")
+    order = _names(pool, include=["alpha", "beta"])
+
+    assert order.index("alpha/alpha-big") < order.index("beta/beta-1")
+
+
 def test_fair_sinks_a_failing_target(providers, env, quota):
     pool = Pool(providers, quota=quota, env=env, post=make_post({}))
     # make beta look broken

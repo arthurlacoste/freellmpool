@@ -214,15 +214,18 @@ model aliases, and settings instead of env vars.
 ## How routing works
 
 For each request, freellmpool builds the list of `(provider, model)` pairs you
-have access to, orders them least-used-first (so load spreads across tiers), and
-tries them in order until one returns a non-empty result. A provider that returns
-a 429 is set aside for a cooldown window. Daily counts are kept in
-`~/.config/freellmpool/quota.json` and reset at UTC midnight.
+have access to, then orders providers least-used-first and picks a least-used
+model inside that provider. This keeps providers with large catalogs, like
+NVIDIA, from receiving more traffic only because they expose more models. A
+provider that returns a 429 is set aside for a cooldown window. Daily counts are
+kept in `~/.config/freellmpool/quota.json` and reset at UTC midnight.
 
-Every call records latency and success per provider. A provider that is currently
-failing sinks to the back automatically; with `FREELLMPOOL_ROUTING=fast` the
-fastest measured provider goes first instead. `freellmpool benchmark` warms these
-metrics on demand.
+Every call records latency and success per model target. A provider whose targets
+are currently failing sinks to the back automatically; with
+`FREELLMPOOL_ROUTING=fast` the fastest measured provider goes first instead.
+`freellmpool benchmark` warms these metrics on demand. To restore the old
+per-model balancing behavior, set `FREELLMPOOL_ROUTING=legacy` or
+`FREELLMPOOL_ROUTING=model`.
 
 **Context windows.** Free models often have small context windows. freellmpool
 never truncates your input; instead, when a model rejects a request as too long,
