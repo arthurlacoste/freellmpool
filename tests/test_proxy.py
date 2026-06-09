@@ -76,6 +76,32 @@ def test_anthropic_model_discovery_shape(server):
     assert "claude-3-5-haiku-latest" in ids
 
 
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"anthropic-version": "2023-06-01"},
+        {"User-Agent": "claude-code"},
+    ],
+)
+def test_anthropic_model_discovery_triggers_are_independent(server, headers):
+    req = urllib.request.Request(server + "/v1/models?limit=100", headers=headers)
+    with urllib.request.urlopen(req) as resp:  # noqa: S310
+        body = json.load(resp)
+    assert body["has_more"] is False
+    assert body["data"][0]["type"] == "model"
+
+
+def test_openai_model_discovery_ignores_loose_claude_user_agent(server):
+    req = urllib.request.Request(
+        server + "/v1/models?limit=100",
+        headers={"User-Agent": "my-claude-tool"},
+    )
+    with urllib.request.urlopen(req) as resp:  # noqa: S310
+        body = json.load(resp)
+    assert body["object"] == "list"
+    assert body["data"][0]["object"] == "model"
+
+
 def test_dashboard(server):
     with urllib.request.urlopen(server + "/dashboard") as resp:  # noqa: S310
         assert resp.status == 200
