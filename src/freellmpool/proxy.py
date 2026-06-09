@@ -83,8 +83,8 @@ def _anthropic_models_payload(pool: Pool) -> dict:
     return {
         "data": data,
         "has_more": False,
-        "first_id": ids[0] if ids else None,
-        "last_id": ids[-1] if ids else None,
+        "first_id": ids[0],
+        "last_id": ids[-1],
     }
 
 
@@ -272,7 +272,7 @@ def make_handler(pool: Pool, api_key: str | None = None):
             return (
                 "anthropic-version" in headers
                 or "anthropic-beta" in headers
-                or "claude" in user_agent
+                or user_agent.startswith("claude")
             )
 
         def do_GET(self) -> None:  # noqa: N802

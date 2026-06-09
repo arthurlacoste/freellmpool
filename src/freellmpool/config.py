@@ -201,6 +201,7 @@ def _alias_cache_key(env: dict[str, str]) -> tuple:
     return config_sig + (env_aliases,)
 
 
+# LRU eviction is fine here: a dropped entry recomputes from env/config metadata.
 @lru_cache(maxsize=64)
 def _known_aliases_cached(cache_key: tuple) -> tuple[str, ...]:
     path_str, _, _, env_aliases = cache_key
