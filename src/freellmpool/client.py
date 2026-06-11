@@ -15,12 +15,14 @@ router and adapters can be unit-tested without touching the network.
 from __future__ import annotations
 
 import json
+import random
 import re
 import sys
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 
 from .errors import ProviderHTTPError
 from .models import EmbedReply, Provider, Reply, TranscribeReply
@@ -68,6 +70,7 @@ class HTTPResult:
     status: int
     body: dict
     text: str
+    headers: dict | None = None
 
 
 PostFn = Callable[[str, dict, dict, float], HTTPResult]
@@ -82,6 +85,8 @@ _USER_AGENT = "freellmpool/0.11 (+https://github.com/0xzr/freellmpool)"
 _CONNECT_TIMEOUT = 10.0  # fail fast on dead/unreachable providers so failover is quick
 # Cap a single upstream reply so a broken/malicious provider can't OOM the proxy.
 _MAX_RESPONSE_BYTES = 32 * 1024 * 1024  # 32 MiB
+_MAX_TRANSPORT_ATTEMPTS = 2
+_RETRY_BACKOFF_S = 0.2
 _shared = None  # one pooled, keep-alive httpx.Client shared across calls/threads
 _shared_lock = threading.Lock()
 
@@ -127,33 +132,125 @@ def default_post(url: str, headers: dict, json_body: dict, timeout: float) -> HT
     so a slow-drip upstream (one byte before each per-read timeout) can't pin a worker
     indefinitely. Either guard raises, which the router treats as a failed attempt and
     fails over."""
+    import httpx
+
     deadline = time.monotonic() + timeout
+    last_exc: httpx.HTTPError | None = None
+    last_result: HTTPResult | None = None
+    for attempt in range(_MAX_TRANSPORT_ATTEMPTS):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            result = _post_once(url, headers, json_body, remaining, deadline)
+        except httpx.HTTPError as exc:
+            last_exc = exc
+            if not _retryable_transport_error(exc, httpx):
+                raise
+            if attempt + 1 >= _MAX_TRANSPORT_ATTEMPTS:
+                raise
+            delay = _retry_delay(None, attempt, deadline)
+            if delay is None:
+                raise
+            time.sleep(delay)
+            continue
+        last_result = result
+        if _retryable(result.status) and attempt + 1 < _MAX_TRANSPORT_ATTEMPTS:
+            delay = _retry_delay(result, attempt, deadline)
+            if delay is not None:
+                time.sleep(delay)
+                continue
+        return result
+    if last_exc is not None:  # pragma: no cover - loop structure guard
+        raise last_exc
+    if last_result is not None:
+        return last_result
+    raise ProviderHTTPError(502, "transport retry loop exhausted", retryable=True)
+
+
+def _post_once(
+    url: str, headers: dict, json_body: dict, timeout: float, deadline: float
+) -> HTTPResult:
     with _client().stream(
         "POST", url, headers=headers, json=json_body, timeout=_timeout(timeout)
     ) as resp:
-        chunks: list[bytes] = []
-        total = 0
-        for chunk in resp.iter_bytes():
-            total += len(chunk)
-            if total > _MAX_RESPONSE_BYTES:
-                raise ProviderHTTPError(
-                    502, f"upstream response exceeded {_MAX_RESPONSE_BYTES} bytes", retryable=True
-                )
-            if time.monotonic() > deadline:
-                raise ProviderHTTPError(
-                    504, f"upstream exceeded {timeout:.0f}s deadline", retryable=True
-                )
-            chunks.append(chunk)
+        raw, text = _read_capped_response(resp.iter_bytes(), deadline, timeout)
         status = resp.status_code
-    raw = b"".join(chunks)
-    text = raw.decode("utf-8", "replace")
+        headers = dict(getattr(resp, "headers", {}) or {})
+    return _json_result(status, raw, text, headers=headers)
+
+
+def _read_capped_response(chunks, deadline: float, timeout: float) -> tuple[bytes, str]:
+    out: list[bytes] = []
+    total = 0
+    for chunk in chunks:
+        total += len(chunk)
+        if total > _MAX_RESPONSE_BYTES:
+            raise ProviderHTTPError(
+                502, f"upstream response exceeded {_MAX_RESPONSE_BYTES} bytes", retryable=True
+            )
+        if time.monotonic() > deadline:
+            raise ProviderHTTPError(504, f"upstream exceeded {timeout:.0f}s deadline", retryable=True)
+        out.append(chunk)
+    raw = b"".join(out)
+    return raw, raw.decode("utf-8", "replace")
+
+
+def _json_result(status: int, raw: bytes, text: str, headers: dict | None = None) -> HTTPResult:
     try:
         body = json.loads(raw) if raw else {}
         if not isinstance(body, dict):
             body = {}
     except (json.JSONDecodeError, ValueError):
         body = {}
-    return HTTPResult(status=status, body=body, text=text)
+    return HTTPResult(status=status, body=body, text=text, headers=headers)
+
+
+def _header(headers: dict | None, name: str) -> str | None:
+    if not headers:
+        return None
+    direct = headers.get(name)
+    if direct is not None:
+        return str(direct)
+    low = name.lower()
+    for key, value in headers.items():
+        if str(key).lower() == low:
+            return str(value)
+    return None
+
+
+def _retry_after_seconds(headers: dict | None) -> float | None:
+    raw = _header(headers, "Retry-After")
+    if not raw:
+        return None
+    raw = raw.strip()
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        pass
+    try:
+        return max(0.0, parsedate_to_datetime(raw).timestamp() - time.time())
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _retry_delay(result: HTTPResult | None, attempt: int, deadline: float) -> float | None:
+    return _retry_delay_monotonic(result, attempt, deadline, time.monotonic)
+
+
+def _retry_delay_monotonic(
+    result: HTTPResult | None, attempt: int, deadline: float, now
+) -> float | None:
+    base = _retry_after_seconds(result.headers if result is not None else None)
+    if base is None:
+        base = _RETRY_BACKOFF_S * (attempt + 1)
+    jitter = random.uniform(0.0, min(0.1, base * 0.1)) if base > 0 else 0.0
+    delay = base + jitter
+    return delay if now() + delay < deadline else None
+
+
+def _retryable_transport_error(exc, httpx) -> bool:
+    return isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout))
 
 
 class _StreamLines:
@@ -548,27 +645,52 @@ def default_multipart_post(
     so a redirect can't exfiltrate the API key (SSRF). Streams + caps the response like
     ``default_post`` so a broken provider can't OOM the proxy and a slow-drip upstream can't
     pin a worker past the deadline."""
+    import httpx
+
     deadline = time.monotonic() + timeout
+    last_exc: httpx.HTTPError | None = None
+    last_result: HTTPResult | None = None
+    for attempt in range(_MAX_TRANSPORT_ATTEMPTS):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            result = _multipart_once(url, headers, files, data, remaining, deadline)
+        except httpx.HTTPError as exc:
+            last_exc = exc
+            if not _retryable_transport_error(exc, httpx):
+                raise
+            if attempt + 1 >= _MAX_TRANSPORT_ATTEMPTS:
+                raise
+            delay = _retry_delay(None, attempt, deadline)
+            if delay is None:
+                raise
+            time.sleep(delay)
+            continue
+        last_result = result
+        if _retryable(result.status) and attempt + 1 < _MAX_TRANSPORT_ATTEMPTS:
+            delay = _retry_delay(result, attempt, deadline)
+            if delay is not None:
+                time.sleep(delay)
+                continue
+        return result
+    if last_exc is not None:  # pragma: no cover - loop structure guard
+        raise last_exc
+    if last_result is not None:
+        return last_result
+    raise ProviderHTTPError(502, "transport retry loop exhausted", retryable=True)
+
+
+def _multipart_once(
+    url: str, headers: dict, files: dict, data: dict, timeout: float, deadline: float
+) -> HTTPResult:
     with _client().stream(
         "POST", url, headers=headers, files=files, data=data, timeout=_timeout(timeout)
     ) as resp:
-        chunks: list[bytes] = []
-        total = 0
-        for chunk in resp.iter_bytes():
-            total += len(chunk)
-            if total > _MAX_RESPONSE_BYTES:
-                raise ProviderHTTPError(
-                    502, f"upstream response exceeded {_MAX_RESPONSE_BYTES} bytes", retryable=True
-                )
-            if time.monotonic() > deadline:
-                raise ProviderHTTPError(
-                    504, f"upstream exceeded {timeout:.0f}s deadline", retryable=True
-                )
-            chunks.append(chunk)
+        raw, text = _read_capped_response(resp.iter_bytes(), deadline, timeout)
         status = resp.status_code
-        ctype = resp.headers.get("content-type", "")
-    raw = b"".join(chunks)
-    text = raw.decode("utf-8", "replace")
+        response_headers = dict(getattr(resp, "headers", {}) or {})
+        ctype = _header(response_headers, "content-type") or ""
     if "application/json" in ctype:
         try:
             body = json.loads(raw) if raw else {}
@@ -578,7 +700,7 @@ def default_multipart_post(
             body = {}  # keep _err_message safe; transcribe() falls back to result.text
     else:
         body = {"text": text}  # response_format=text returns the transcription as plain text
-    return HTTPResult(status=status, body=body, text=text)
+    return HTTPResult(status=status, body=body, text=text, headers=response_headers)
 
 
 def transcribe(

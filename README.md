@@ -179,8 +179,8 @@ async with AsyncPool.from_default_config() as pool:
     reply = await pool.aask("Summarize the plot of Hamlet in 20 words.")
 ```
 
-Pass `on_event=...` to either pool to receive structured routing events
-(`attempt`/`success`/`error`/`cooldown`/`exhausted`) for logging or tracing. Add
+Pass `on_event=...` to either pool to receive structured routing/cache events
+(`attempt`/`success`/`error`/`cooldown`/`cache_hit`/`cache_miss`/`exhausted`) for logging or tracing. Add
 your own endpoint with `register_provider(...)`, or a new request shape with
 `register_adapter(name, fn)`.
 
@@ -256,6 +256,23 @@ required. Step-by-step signup links for each (all free, no card) are in
 
 A `config.toml` (see [config.toml.example](config.toml.example)) can hold keys,
 model aliases, and settings instead of env vars.
+
+## Local diagnostics and operations
+
+Run `freellmpool doctor` for a no-network local check of package version, config
+paths, configured provider count, routing mode, quota/cache locations, external
+catalog cache age, and bundled catalog validity.
+
+Response caching is off unless `FREELLMPOOL_CACHE_TTL` (seconds) or
+`[settings] cache_ttl` is positive. When enabled, cache rows live in SQLite with
+WAL mode and TTL pruning; `FREELLMPOOL_CACHE_MAX_ENTRIES` caps retained rows
+(default `10000`, set `0` to disable size pruning).
+
+Quota counters are written immediately by default. Long-running proxy/MCP
+processes can reduce file churn with `FREELLMPOOL_QUOTA_FLUSH_EVERY=N`, which
+batches up to `N` successful requests before flushing. Shutdown paths and
+`quota.snapshot()` flush pending counts, so dashboards and process exits still
+see current totals.
 
 ## How routing works
 
