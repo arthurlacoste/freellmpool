@@ -68,7 +68,7 @@ def test_demo_assets_are_well_formed_and_current():
     assert "TOKENMAXXING" in demo
     assert "--animation-duration: 8500ms" in demo
     assert f"freellmpool-{__version__}" in demo
-    assert "18 providers, 237 models" in demo
+    assert "18 providers, 236 models" in demo
     assert "18 free tiers" in demo
     assert "200+" in results
     assert "18 providers" in results

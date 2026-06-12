@@ -47,7 +47,7 @@
     <text class="text line l6" x="0" y="236"><tspan class="yellow">kilo/openrouter/free</tspan>      "ZeroKey"</text>
     <text class="text line l6" x="0" y="270"><tspan class="green">llm7/qwen3-235b</tspan>           "PoolPilot"</text>
     <text class="text line l7" x="0" y="326"><tspan class="pink">SYNTHESIS</tspan> freellmpool: one local API over the free tiers.</text>
-    <text class="text line l8" x="0" y="382"><tspan class="green">freellmpool catalog:</tspan> 18 providers, 237 models - 18 free tiers - $0 to start</text>
+    <text class="text line l8" x="0" y="382"><tspan class="green">freellmpool catalog:</tspan> 18 providers, 236 models - 18 free tiers - $0 to start</text>
     <rect class="cursor" x="0" y="404" width="10" height="22" fill="#eef4ff"/>
   </g>
 </svg>

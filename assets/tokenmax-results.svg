@@ -20,7 +20,7 @@
   <rect class="card" x="70" y="178" width="320" height="220" rx="18"/>
   <text class="ink metric" x="104" y="292">200+</text>
   <text class="ink label" x="108" y="340">live-validated models</text>
-  <text class="ink muted tiny" x="108" y="374">237 enabled chat routes today</text>
+  <text class="ink muted tiny" x="108" y="374">236 enabled chat routes today</text>
 
   <rect class="card" x="440" y="178" width="320" height="220" rx="18"/>
   <text class="ink metric" x="474" y="292">18</text>
