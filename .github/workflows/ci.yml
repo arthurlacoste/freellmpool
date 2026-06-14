@@ -7,6 +7,17 @@ on:
     branches: [main]
 
 jobs:
+  quickstart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Cold quickstart
+        run: FREELLMPOOL_QUICKSTART_PACKAGE=. scripts/quickstart-test.sh
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -14,9 +25,9 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
@@ -24,6 +35,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Lint
-        run: ruff check src tests
+        run: ruff check .
+      - name: Validate catalog
+        run: python scripts/validate_catalog.py
+      - name: Check public count claims
+        run: scripts/check-counts
+      - name: Release metadata readiness
+        run: python scripts/check_release_ready.py --skip-build
+      - name: Proxy stress smoke
+        run: python scripts/stress_proxy.py --profile ci
+      - name: Type check focused helpers
+        run: mypy src/freellmpool/routing_modes.py src/freellmpool/catalog_validation.py src/freellmpool/_version.py
+      - name: Import smoke
+        run: python -c "import freellmpool; from freellmpool import Pool, AsyncPool; print(freellmpool.__version__, Pool, AsyncPool)"
       - name: Test
-        run: pytest
+        run: pytest --cov=freellmpool --cov-report=term-missing --cov-fail-under=75
+      - name: Wheel smoke
+        run: |
+          python -m build
+          python -m venv /tmp/freellmpool-wheel-smoke
+          /tmp/freellmpool-wheel-smoke/bin/python -m pip install --upgrade pip
+          /tmp/freellmpool-wheel-smoke/bin/python -m pip install dist/*.whl
+          /tmp/freellmpool-wheel-smoke/bin/python -c "import freellmpool; from freellmpool import Pool, AsyncPool; print(freellmpool.__version__, Pool, AsyncPool)"
+          /tmp/freellmpool-wheel-smoke/bin/freellmpool --version
+          FREELLMPOOL_CONFIG_FILE=/tmp/flp-smoke-config.toml \
+          FREELLMPOOL_QUOTA_PATH=/tmp/flp-smoke-quota.json \
+          FREELLMPOOL_CACHE_PATH=/tmp/flp-smoke-cache.db \
+          FREELLMPOOL_EXTERNAL_CATALOG_PATH=/tmp/flp-smoke-external.json \
+            /tmp/freellmpool-wheel-smoke/bin/freellmpool doctor

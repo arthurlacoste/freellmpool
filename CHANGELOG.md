@@ -4,6 +4,74 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.3] — 2026-06-11
+
+Launch polish and packaging metadata release.
+
+### Added
+- A CI-backed 30-second quickstart check that installs from a clean venv and
+  requires a keyless first reply.
+- `FAQ.md` with prompt-destination, privacy, ToS, failover, ban-risk, and
+  comparison answers.
+- Above-the-fold README demo assets for `tokenmax`, plus an upload-ready GitHub
+  social preview asset and local GitHub discovery checklist.
+- Contributor templates, PR template, and ready-to-file good-first-issue drafts
+  for newcomer-sized tasks.
+- Release checklist for the operator-run tag/build/publish flow.
+
+### Changed
+- Public provider/model counts are now checked from the provider catalog by
+  `scripts/check-counts`, reducing drift across README/docs/release metadata.
+- README comparison copy is more explicit and gracious about OpenRouter,
+  LiteLLM, and FreeLLMAPI.
+- PyPI metadata now has a shorter launch description, broader keywords,
+  project URLs, and more complete classifiers.
+
+## [0.11.2] — 2026-06-10
+
+### Fixed
+- The local proxy now aligns its listen backlog with its 128-request worker cap,
+  so short mixed-traffic bursts queue cleanly instead of occasionally resetting
+  connections before the proxy can accept and handle them. The existing hard cap
+  still bounds worker threads and process resources under sustained floods.
+
+## [0.11.1] — 2026-06-10
+
+Hardening and operations release after the 0.11 capacity tooling.
+
+### Added
+- **`freellmpool doctor`** — a no-network local diagnostics command that reports
+  package version, config paths, configured provider count, routing mode,
+  quota/cache paths, external catalog cache age, and bundled catalog validity.
+- **Local catalog validation and hot-path benchmarks.** `scripts/validate_catalog.py`
+  validates bundled provider metadata in CI, while `scripts/bench_hotpaths.py`
+  and `scripts/compare_benchmarks.py` track routing/cache/quota hot paths.
+- CI now runs catalog validation, focused mypy checks, coverage with a minimum
+  threshold, and a built-wheel smoke test including `freellmpool doctor`.
+
+### Changed
+- Routing now normalizes mode names consistently and indexes provider/model
+  targets so large catalogs avoid repeated scans and metric lock churn.
+- Response cache keys include the active routing mode, preventing cross-mode
+  cache hits between `fast`, `quality`, and `fair` routing.
+- Cache storage uses SQLite WAL mode, prunes expired rows, and supports a
+  `FREELLMPOOL_CACHE_MAX_ENTRIES` cap.
+- Quota counters can batch writes with `FREELLMPOOL_QUOTA_FLUSH_EVERY=N` while
+  still flushing on snapshots and shutdown paths.
+
+### Fixed
+- Sync and async HTTP transports now honor bounded retries with `Retry-After`
+  support without losing the last provider response when the retry delay consumes
+  the request deadline.
+- POST retries no longer replay read-phase transport errors after a request may
+  have reached the provider; only connect/pool-acquisition failures are retried.
+- The async transport now streams and caps response bodies like the sync path,
+  enforcing response-size and wall-clock deadline guards.
+- Async retry attempts keep the original request headers instead of accidentally
+  reusing a provider response's headers.
+- Cache, quota, and stats persistence paths handle disk/SQLite failures as
+  best-effort operations instead of crashing hot paths.
+
 ## [0.11.0] — 2026-06-06
 
 Capacity management — see what's usable right now and keep your free tiers
