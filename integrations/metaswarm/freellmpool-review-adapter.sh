@@ -613,7 +613,7 @@ Review options:
 
 Environment:
   FREELLMPOOL_CMD                         freellmpool binary path.
-  FREELLMPOOL_REVIEW_MODE                 strong, tokenmax, or ask; default strong.
+  FREELLMPOOL_REVIEW_MODE                 strong, strong-long-context, tokenmax, or ask; default strong.
   FREELLMPOOL_STRONG_MODELS               comma-separated exact model ids for strong mode.
   FREELLMPOOL_STRONG_PROVIDERS            comma-separated provider ids required for ready health.
   FREELLMPOOL_MAX_MODELS                  max strong/tokenmax models, default 7.

@@ -99,7 +99,7 @@ required environment variable names but not secret values.
 | Variable | Purpose |
 | --- | --- |
 | `FREELLMPOOL_CMD` | Path to the `freellmpool` executable. |
-| `FREELLMPOOL_REVIEW_MODE` | `strong` (default), `tokenmax`, or `ask`. |
+| `FREELLMPOOL_REVIEW_MODE` | `strong` (default), `strong-long-context`, `tokenmax`, or `ask`. |
 | `FREELLMPOOL_STRONG_MODELS` | Comma-separated exact provider/model ids for strong mode. |
 | `FREELLMPOOL_STRONG_PROVIDERS` | Provider ids that must be configured for ready health. |
 | `FREELLMPOOL_MAX_MODELS` | Model cap for strong/tokenmax review. |

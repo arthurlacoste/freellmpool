@@ -85,6 +85,25 @@ def test_metaswarm_adapter_no_key_review_fails_closed(tmp_path: Path) -> None:
     assert "secret" not in payload["raw_log"].lower()
 
 
+def test_metaswarm_adapter_implement_is_unsupported(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [str(ADAPTER), "implement", "--attempt", "2"],
+        text=True,
+        capture_output=True,
+        env=_base_env(tmp_path),
+        check=False,
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["tool"] == "freellmpool"
+    assert payload["command"] == "implement"
+    assert payload["attempt"] == 2
+    assert payload["exit_code"] == 2
+    assert payload["error_type"] == "unsupported_role"
+    assert "review-only" in payload["raw_log"]
+
+
 def test_metaswarm_docs_are_linked() -> None:
     integrations = (ROOT / "docs" / "INTEGRATIONS.md").read_text(encoding="utf-8")
     agents = (ROOT / "docs" / "AGENTS.md").read_text(encoding="utf-8")
