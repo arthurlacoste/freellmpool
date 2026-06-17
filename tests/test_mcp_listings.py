@@ -7,7 +7,7 @@ from freellmpool import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 
-REGISTRIES = ("Smithery", "Glama", "MCP.so", "PulseMCP")
+REGISTRIES = ("Official MCP Registry", "Smithery", "Glama", "MCP.so", "PulseMCP")
 LISTING_FILES = (
     "smithery.md",
     "glama-submission.md",
@@ -46,11 +46,12 @@ def test_server_json_is_registry_ready_for_stdio_package():
     assert package["packageArguments"] == [{"type": "positional", "value": "mcp"}]
 
 
-def test_mcp_listing_handoff_covers_each_registry_and_action():
+def test_mcp_listing_status_covers_each_registry_and_action():
     doc = (ROOT / "docs/MCP_LISTINGS.md").read_text(encoding="utf-8")
 
-    assert "Do not submit" in doc
-    assert "No external submissions were performed" in doc
+    assert "official MCP Registry publish" in doc
+    assert "MCP.so issue" in doc
+    assert "remaining directories require the operator" in doc
     for registry in REGISTRIES:
         assert registry in doc
     for filename in LISTING_FILES:
