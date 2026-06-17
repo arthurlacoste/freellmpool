@@ -2,7 +2,7 @@
 
 Prepared on 2026-06-11. Do not submit, publish, push registry branches, or open
 external PRs from the polish automation branch. The operator submits after the
-polish PR is merged and `freellmpool 0.11.3` is published to PyPI.
+polish PR is merged and `freellmpool 0.11.4` is published to PyPI.
 
 ## Local Manifest Status
 
@@ -10,7 +10,7 @@ polish PR is merged and `freellmpool 0.11.3` is published to PyPI.
 
 - Schema: `https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`
 - Name: `io.github.0xzr/freellmpool`
-- Version: `0.11.3`
+- Version: `0.11.4`
 - Repository: `https://github.com/0xzr/freellmpool`
 - Package: PyPI `freellmpool`, runtime hint `uvx`
 - Transport: stdio

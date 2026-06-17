@@ -1,6 +1,6 @@
 # Release Checklist
 
-Prepared release: `0.11.3`
+Prepared release: `0.11.4`
 
 This checklist is for the operator after the polish PR is merged. Do not publish,
 push tags, or create a GitHub release from the polish automation branch.
@@ -24,7 +24,7 @@ Run after the PR is merged and the verified commit is on `main`:
 ```bash
 git switch main
 git pull --ff-only
-git tag -a v0.11.3 -m "freellmpool 0.11.3"
+git tag -a v0.11.4 -m "freellmpool 0.11.4"
 ```
 
 ## Build And Publish
@@ -47,9 +47,9 @@ python3 scripts/check_release_ready.py --check-pypi
 ## Post-Release
 
 ```bash
-git push origin v0.11.3
+git push origin v0.11.4
 ```
 
-Create the GitHub release from the pushed tag and paste the `0.11.3` changelog
+Create the GitHub release from the pushed tag and paste the `0.11.4` changelog
 entry. Do not include API keys, provider credentials, or unpublished issue draft
 details in the release notes.

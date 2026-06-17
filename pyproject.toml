@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "freellmpool"
-version = "0.11.3"
+version = "0.11.4"
 description = "Free LLM API pool: 18 LLM providers, 200+ live models, 300+ cataloged models, zero keys to start, failover."
 readme = "README.md"
 license = "MIT"

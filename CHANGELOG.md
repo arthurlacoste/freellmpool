@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.4] — 2026-06-17
+
+MCP Registry verification metadata release.
+
+### Added
+- Hidden `mcp-name: io.github.0xzr/freellmpool` README metadata so the official
+  MCP Registry can verify PyPI package ownership.
+- Test coverage that `freellmpool tokenmax --timeout` is also honored by the
+  synthesis request.
+
 ## [0.11.3] — 2026-06-11
 
 Launch polish and packaging metadata release.

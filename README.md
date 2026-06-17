@@ -1,5 +1,7 @@
 # freellmpool
 
+<!-- mcp-name: io.github.0xzr/freellmpool -->
+
 ![freellmpool tokenmax terminal demo](assets/demo.svg)
 
 ![200+ models, 18 providers, $0 to start](assets/tokenmax-results.svg)
