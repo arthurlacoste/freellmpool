@@ -43,6 +43,34 @@ def test_keyless_providers_always_configured():
     assert "pollinations" in ids  # keyless
     assert "groq" not in ids  # needs a key
 
+def test_env_example_documents_keyless_providers():
+    """Verify .env.example lists all default-enabled keyless/key-optional providers."""
+    from pathlib import Path
+    
+    # Get keyless providers from catalog (auth=none or key_optional=true)
+    catalog = load_catalog()
+    keyless_ids = {
+        p.id for p in catalog 
+        if (p.auth == "none" or (hasattr(p, 'key_optional') and p.key_optional))
+    }
+    
+    # Read .env.example
+    env_file = Path(__file__).parent.parent / ".env.example"
+    env_content = env_file.read_text()
+    
+    # Extract zero-setup section
+    start = env_content.find("# Zero-setup providers")
+    end = env_content.find("# So freellmpool works")
+    zero_setup_section = env_content[start:end]
+    
+    # Convert to lowercase for case-insensitive comparison
+    zero_setup_lower = zero_setup_section.lower()
+    
+    # Verify each keyless provider is documented
+    for provider_id in keyless_ids:
+        assert provider_id.lower() in zero_setup_lower, \
+            f"Keyless provider '{provider_id}' must be documented in .env.example zero-setup section"
+
 
 def test_configured_filter_by_env():
     catalog = load_catalog()
