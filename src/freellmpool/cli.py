@@ -796,6 +796,59 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def cmd_proxy(args: argparse.Namespace) -> int:
     from .proxy import serve  # lazy: avoids http.server import on other paths
+    from .tailnet import (
+        UnsafeBindError,
+        assert_bind_safe,
+        format_setup_hints,
+        is_loopback_host,
+        safe_base_url,
+    )
+
+    # `--tailnet` is a Tailnet-safe alias for `freellmpool tailnet serve`.
+    # It runs the same safety logic but keeps the proxy's familiar verb
+    # for users who already have `freellmpool proxy` muscle memory.
+    if getattr(args, "tailnet", False):
+        return _run_tailnet_serve(
+            port=args.port,
+            api_key=args.api_key,
+            allow_lan=getattr(args, "allow_lan", False),
+            allow_no_auth=getattr(args, "allow_no_auth", False),
+            dry_run=False,
+        )
+
+    proxy_key = (
+        args.api_key
+        or os.environ.get("FREELLMPOOL_PROXY_KEY")
+        or settings().get("proxy_key")
+        or None
+    )
+
+    # Enforce the WU-001 safety rules. Loopback binds always pass and
+    # keep the legacy "warn-only" behavior below; non-loopback binds
+    # require either an explicit --allow-lan + auth (or --allow-no-auth
+    # as a documented escape hatch) or they are refused outright.
+    try:
+        assert_bind_safe(
+            host=args.host,
+            api_key=proxy_key,
+            allow_lan=getattr(args, "allow_lan", False),
+            allow_no_auth=getattr(args, "allow_no_auth", False),
+        )
+    except UnsafeBindError as exc:
+        print(f"freellmpool: {exc}", file=sys.stderr)
+        return 2
+
+    loopback = is_loopback_host(args.host)
+    if not loopback and not proxy_key:
+        # Loopback-warn path is now unreachable in practice (assert_bind_safe
+        # raises for non-loopback w/o auth unless allow-no-auth is set), but
+        # kept as a defensive backstop in case the helper is bypassed.
+        print(
+            f"freellmpool: WARNING — binding to {args.host} (not loopback) with NO proxy key "
+            "exposes all your configured providers to the network. Set --api-key or "
+            "FREELLMPOOL_PROXY_KEY, or bind to 127.0.0.1.",
+            file=sys.stderr,
+        )
 
     pool = Pool.from_default_config()
     if not pool.providers:
@@ -806,30 +859,17 @@ def cmd_proxy(args: argparse.Namespace) -> int:
         )
         return 3
 
-    proxy_key = (
-        args.api_key
-        or os.environ.get("FREELLMPOOL_PROXY_KEY")
-        or settings().get("proxy_key")
-        or None
-    )
-    loopback = args.host in {"127.0.0.1", "localhost", "::1"}
-    if not loopback and not proxy_key:
-        print(
-            f"freellmpool: WARNING — binding to {args.host} (not loopback) with NO proxy key "
-            "exposes all your configured providers to the network. Set --api-key or "
-            "FREELLMPOOL_PROXY_KEY, or bind to 127.0.0.1.",
-            file=sys.stderr,
-        )
-
     httpd = serve(pool, host=args.host, port=args.port, api_key=proxy_key)
     n_models = sum(len(p.models) for p in pool.providers)
     auth_note = "  auth: Bearer key required\n" if proxy_key else ""
+    base_url = safe_base_url(args.host, args.port)
     print(
-        f"freellmpool proxy on http://{args.host}:{args.port}/v1  "
+        f"freellmpool proxy on {base_url}/v1  "
         f"({len(pool.providers)} providers, {n_models} models)\n"
         f"{auth_note}"
-        f"  point your OpenAI client at:  OPENAI_BASE_URL=http://{args.host}:{args.port}/v1\n"
-        f"  dashboard:  http://{args.host}:{args.port}/dashboard\n"
+        f"  point your OpenAI client at:  OPENAI_BASE_URL={base_url}/v1\n"
+        f"  dashboard:  {base_url}/dashboard\n"
+        f"{format_setup_hints(base_url=base_url, token=proxy_key)}"
         "  press Ctrl-C to stop",
         file=sys.stderr,
     )
@@ -845,6 +885,267 @@ def cmd_proxy(args: argparse.Namespace) -> int:
     finally:
         pool.quota.flush()
         httpd.server_close()
+    return 0
+
+
+def _run_tailnet_serve(
+    *,
+    port: int,
+    api_key: str | None,
+    allow_lan: bool,
+    allow_no_auth: bool,
+    dry_run: bool,
+) -> int:
+    """Shared body for ``freellmpool tailnet serve`` and ``proxy --tailnet``.
+
+    Detects the local Tailnet IPv4, picks / validates the bind target,
+    requires auth (or generates a session token), and starts the proxy
+    on the Tailnet address. The two entry points only differ in their
+    flag set; everything else lives here so the safety logic stays in
+    one place.
+    """
+    from .proxy import serve  # lazy: avoids http.server import on other paths
+    from .tailnet import (
+        STATE_CLI_MISSING,
+        STATE_LOGGED_OUT,
+        STATE_MALFORMED,
+        STATE_NO_IPV4,
+        UnsafeBindError,
+        assert_bind_safe,
+        detect_tailnet,
+        format_setup_hints,
+        generate_session_token,
+        safe_base_url,
+    )
+
+    status = detect_tailnet()
+    if not status.usable:
+        # Map tagged states to actionable error messages. We never echo
+        # subprocess stderr (it can include MagicDNS hostnames and other
+        # text the user may not want echoed back), and we never print
+        # provider API keys.
+        if status.state == STATE_CLI_MISSING:
+            print(
+                "freellmpool: cannot start Tailnet serving — "
+                f"{status.detail}",
+                file=sys.stderr,
+            )
+        elif status.state == STATE_LOGGED_OUT:
+            print(
+                "freellmpool: cannot start Tailnet serving — "
+                f"{status.detail}",
+                file=sys.stderr,
+            )
+        elif status.state == STATE_NO_IPV4:
+            print(
+                "freellmpool: cannot start Tailnet serving — "
+                f"{status.detail}",
+                file=sys.stderr,
+            )
+        elif status.state == STATE_MALFORMED:
+            print(
+                "freellmpool: cannot start Tailnet serving — "
+                f"{status.detail}",
+                file=sys.stderr,
+            )
+        else:  # pragma: no cover - defensive
+            print(
+                "freellmpool: cannot start Tailnet serving — "
+                f"unknown Tailscale state: {status.state}",
+                file=sys.stderr,
+            )
+        print(
+            "\nHint: `freellmpool proxy` on loopback (127.0.0.1) still works "
+            "without Tailscale.",
+            file=sys.stderr,
+        )
+        return 3
+
+    # We have a validated 100.x address. Resolve the auth key: explicit
+    # --api-key > FREELLMPOOL_PROXY_KEY > config proxy_key > generate one.
+    explicit_key = (
+        api_key
+        or os.environ.get("FREELLMPOOL_PROXY_KEY")
+        or settings().get("proxy_key")
+        or None
+    )
+
+    bind_host = status.ipv4  # type: ignore[assignment]  # safe: usable=True
+
+    # Non-Tailnet LAN binds need --allow-lan; even Tailnet binds need
+    # auth unless --allow-no-auth is passed. assert_bind_safe enforces
+    # the WU-001 spec rules.
+    if explicit_key is None and not allow_no_auth:
+        # Default-on safety: generate a session token so a Tailnet serve
+        # never silently starts unauthenticated. The token is printed
+        # once and never persisted.
+        explicit_key = generate_session_token()
+        generated_session_token = True
+    else:
+        generated_session_token = False
+
+    try:
+        assert_bind_safe(
+            host=bind_host,
+            api_key=explicit_key,
+            allow_lan=allow_lan,
+            allow_no_auth=allow_no_auth,
+        )
+    except UnsafeBindError as exc:
+        print(f"freellmpool: {exc}", file=sys.stderr)
+        return 2
+
+    base_url = safe_base_url(bind_host, port)
+    if generated_session_token:
+        token_label = explicit_key if not dry_run else "<session-token-printed-on-real-run>"
+    elif explicit_key:
+        token_label = "<your-proxy-key>"
+    else:
+        token_label = None
+    setup_block = format_setup_hints(
+        base_url=base_url,
+        token=explicit_key,
+        token_label=token_label,
+    )
+    auth_status = "Bearer key required (token generated for this session)" if generated_session_token else (
+        "Bearer key required (using --api-key / FREELLMPOOL_PROXY_KEY)"
+        if explicit_key
+        else "no auth (--allow-no-auth)"
+    )
+
+    if dry_run:
+        # Print the exact bind address, auth status, dashboard URL and
+        # client env vars — but never start the server and never print
+        # the actual token (the plan asks for a "token marker"; the
+        # real token is only shown for live runs, never in --dry-run,
+        # so a dry-run can be safely pasted into a chat / issue).
+        marker = token_label or "<none>"
+        print(
+            f"freellmpool tailnet serve (dry run)\n"
+            f"  bind host      : {bind_host}\n"
+            f"  bind URL       : {base_url}/v1\n"
+            f"  dashboard      : {base_url}/dashboard\n"
+            f"  auth status    : {auth_status}\n"
+            f"  token marker   : {marker}\n"
+            f"\n{setup_block}",
+            file=sys.stderr,
+        )
+        return 0
+
+    pool = Pool.from_default_config()
+    if not pool.providers:
+        print(
+            "freellmpool: no providers configured; set at least one API key "
+            "(see .env.example) before starting the proxy.",
+            file=sys.stderr,
+        )
+        return 3
+
+    if generated_session_token:
+        # Real-run banner: this is the ONE place the session token
+        # is shown. Make it impossible to miss, and never include
+        # provider keys in the same output.
+        print(
+            f"\nfreellmpool: generated a one-session proxy key:\n"
+            f"  {explicit_key}\n"
+            f"  (use it as `Authorization: Bearer {explicit_key}` from your "
+            f"client; it is not saved anywhere)\n",
+            file=sys.stderr,
+        )
+
+    httpd = serve(pool, host=bind_host, port=port, api_key=explicit_key)
+    n_models = sum(len(p.models) for p in pool.providers)
+    print(
+        f"freellmpool tailnet serve on {base_url}/v1  "
+        f"({len(pool.providers)} providers, {n_models} models)\n"
+        f"  auth status    : {auth_status}\n"
+        f"  bind address   : {bind_host} (Tailnet IPv4)\n"
+        f"\n{setup_block}"
+        "  press Ctrl-C to stop",
+        file=sys.stderr,
+    )
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        s = pool.stats_snapshot()
+        saved = format_saved(s["prompt_tokens"], s["completion_tokens"])
+        print(
+            f"\nfreellmpool: shutting down — served {s['requests']} requests · {saved}",
+            file=sys.stderr,
+        )
+    finally:
+        pool.quota.flush()
+        httpd.server_close()
+    return 0
+
+
+def cmd_tailnet_status(args: argparse.Namespace) -> int:
+    from .tailnet import (
+        STATE_CLI_MISSING,
+        STATE_LOGGED_OUT,
+        STATE_MALFORMED,
+        STATE_NO_IPV4,
+        STATE_USABLE,
+        detect_tailnet,
+    )
+
+    status = detect_tailnet()
+    if status.state == STATE_USABLE:
+        print(
+            f"freellmpool tailnet: usable\n"
+            f"  IPv4           : {status.ipv4}\n"
+            f"  next           : `freellmpool tailnet serve --port {args.port}` "
+            "(auth is auto-generated if you don't pass --api-key)",
+            file=sys.stderr,
+        )
+        return 0
+
+    label = {
+        STATE_CLI_MISSING: "tailscale CLI missing",
+        STATE_LOGGED_OUT: "tailscale logged out / daemon unreachable",
+        STATE_NO_IPV4: "no IPv4 from tailscale",
+        STATE_MALFORMED: "malformed tailscale output",
+    }.get(status.state, status.state)
+    print(
+        f"freellmpool tailnet: {label}\n"
+        f"  reason         : {status.detail}\n"
+        f"  fallback       : `freellmpool proxy` on 127.0.0.1 still works.",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def cmd_tailnet_serve(args: argparse.Namespace) -> int:
+    return _run_tailnet_serve(
+        port=args.port,
+        api_key=args.api_key,
+        allow_lan=args.allow_lan,
+        allow_no_auth=args.allow_no_auth,
+        dry_run=args.dry_run,
+    )
+
+
+def cmd_tailnet_connect(args: argparse.Namespace) -> int:
+    """Print the client setup commands for a remote tailnet proxy.
+
+    ``host`` may be a 100.x Tailnet IPv4 or a MagicDNS hostname; we do
+    not resolve it (no DNS / no network). The user pastes the printed
+    exports into the client machine.
+    """
+    from .tailnet import format_setup_hints, safe_base_url
+
+    host = args.host
+    if not host:
+        print("freellmpool: tailnet connect needs a tailnet host or IP", file=sys.stderr)
+        return 2
+
+    base = safe_base_url(host, args.port)
+    print(
+        f"freellmpool tailnet connect: {host}:{args.port}\n"
+        f"{format_setup_hints(base_url=base, token='<proxy-key>', token_label='<proxy-key-from-server>')}"
+        "\n  If the server was started with --allow-no-auth, any placeholder API key works.",
+        file=sys.stderr,
+    )
     return 0
 
 
@@ -1096,7 +1397,73 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="require this Bearer token on requests (or set FREELLMPOOL_PROXY_KEY)",
     )
+    p_proxy.add_argument(
+        "--tailnet",
+        action="store_true",
+        help="alias for `freellmpool tailnet serve` — bind to the local 100.x Tailnet IPv4, require auth",
+    )
+    p_proxy.add_argument(
+        "--allow-lan",
+        action="store_true",
+        help="allow binding to a non-Tailnet LAN address (still requires auth unless --allow-no-auth)",
+    )
+    p_proxy.add_argument(
+        "--allow-no-auth",
+        action="store_true",
+        help="explicit escape hatch: serve on a non-loopback bind with NO proxy key",
+    )
     p_proxy.set_defaults(func=cmd_proxy)
+
+    p_tailnet = sub.add_parser(
+        "tailnet",
+        help="Tailnet gateway: serve freellmpool over a Tailscale 100.x address",
+    )
+    tailnet_sub = p_tailnet.add_subparsers(dest="tailnet_command", required=True)
+
+    p_tailnet_status = tailnet_sub.add_parser(
+        "status", help="report Tailscale availability, local Tailnet IPv4, and auth readiness"
+    )
+    p_tailnet_status.add_argument(
+        "--port", type=int, default=8080, help="port to suggest in the next-step hint"
+    )
+    p_tailnet_status.set_defaults(func=cmd_tailnet_status)
+
+    p_tailnet_serve = tailnet_sub.add_parser(
+        "serve", help="bind the proxy to the local Tailnet IPv4 (auth required by default)"
+    )
+    p_tailnet_serve.add_argument("--port", type=int, default=8080)
+    p_tailnet_serve.add_argument(
+        "--api-key",
+        default=None,
+        help="require this Bearer token on requests (or set FREELLMPOOL_PROXY_KEY). "
+        "If omitted, a one-session token is generated and printed.",
+    )
+    p_tailnet_serve.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the bind address, auth status, and client setup hints without starting a server",
+    )
+    p_tailnet_serve.add_argument(
+        "--allow-lan",
+        action="store_true",
+        help="allow binding to a non-Tailnet LAN address (still requires auth unless --allow-no-auth)",
+    )
+    p_tailnet_serve.add_argument(
+        "--allow-no-auth",
+        action="store_true",
+        help="explicit escape hatch: serve on a non-loopback bind with NO proxy key",
+    )
+    p_tailnet_serve.set_defaults(func=cmd_tailnet_serve)
+
+    p_tailnet_connect = tailnet_sub.add_parser(
+        "connect",
+        help="print the OpenAI / Anthropic base URL and env exports for a remote tailnet proxy",
+    )
+    p_tailnet_connect.add_argument("host", help="tailnet host (MagicDNS name) or 100.x IPv4 of the host running `tailnet serve`")
+    p_tailnet_connect.add_argument(
+        "--port", type=int, default=8080, help="port the remote proxy is listening on"
+    )
+    p_tailnet_connect.set_defaults(func=cmd_tailnet_connect)
 
     p_mcp = sub.add_parser(
         "mcp", help="run an MCP server (stdio) so MCP clients can use free models"
