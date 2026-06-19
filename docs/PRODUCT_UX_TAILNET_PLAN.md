@@ -156,6 +156,35 @@ Adopted resolutions:
 - Keep the stdlib-first constraint. None of these refinements authorizes a new
   runtime dependency.
 
+Fresh Kimi/M3 reconciliation, 2026-06-19:
+
+- Kimi K2.6 and MiniMax M3 both returned `NEEDS_REVISION` on the top-10 plan
+  review because several surfaces were not yet pinned to versioned schemas,
+  explicit override precedence, or concrete failure behavior. The revisions
+  below are adopted as plan requirements, not optional polish.
+- After these revisions, Kimi K2.6 and MiniMax M3 both returned `PASS` with no
+  blocking missing requirements.
+- Version every structured public surface that agents may consume:
+  `init --json`, `recipe list --json`, bundled recipe JSON, job JSONL events,
+  and WU-008 `RunRecord` artifacts. Consumers must ignore unknown future keys
+  but tests must pin the current required keys.
+- Closed-set fields are required for role/profile contracts: `client_kind`,
+  `cost_class`, role names, routing modes, and report feature types. Unknown
+  values should fail clearly at parse/validation boundaries.
+- Override precedence is explicit across the plan: user-supplied `--model`,
+  `--providers`, `--routing`, and `--max-tokens` win over role/profile/mode
+  defaults, and human-facing output must show when such an override happened.
+- Multi-model fan-out is centralized in `panel.py`. CLI, MCP, battle, recipes,
+  reports, and later job flows must call the same helper or a thin wrapper
+  around it, not parallel fan-out implementations.
+- Wise-mode guards are policy, not routing magic. Expensive free-quota
+  operations prompt in interactive mode, fail in non-interactive mode unless
+  `--yes` is passed, and never fall through to paid providers without an
+  explicit paid selection.
+- Append-only local state uses event records, not in-place mutation. Reports
+  and jobs must define replay/newest semantics from the JSONL stream rather
+  than relying on fragile mutable pointer files.
+
 ### 1. Init Wizard
 
 Use case: a new user runs `freellmpool init` once and receives a working path
@@ -168,11 +197,16 @@ Adopted plan additions:
   command; write no files and exit 0.
 - Add `--json` output for the detected environment so agents can consume init
   results without scraping prose.
+- `init --json` uses schema version `1.0.0` with required keys:
+  `detected_providers`, `detected_agents`, `tailscale_state`,
+  `proxy_config_state`, `recommended_next_command`, `recommended_profile`, and
+  `warnings`.
 - Each offered path prints one copy-pastable command block. The Metaswarm +
   Tailnet path must include `tailnet serve`, remote base URLs, and the profile
   doctor command.
 - Re-running init against existing config remains idempotent. No config file is
-  changed without an explicit write/force path.
+  changed without an explicit write path, and existing config can be overwritten
+  only when `--force` is present.
 
 Verification additions:
 
@@ -192,7 +226,8 @@ Adopted plan additions:
 
 - The `metaswarm` profile must expose one free/cheap worker lane, one larger
   reviewer lane, Codex as escalation, and Opus only as a final-review lane. Any
-  paid lane is explicitly labeled `cost_class=paid` and off by default.
+  paid lane is explicitly labeled `cost_class=paid`,
+  `enabled_by_default=false`, and off by default.
 - `profile show metaswarm` must include Tailnet-aware base URL examples for a
   second machine using the proxy over Tailscale.
 - `profile install <name>` stays print-first for third-party agent config. If a
@@ -200,6 +235,8 @@ Adopted plan additions:
   file changed.
 - Profile records include `client_kind`, `base_url`, role map, model family,
   cost class, snippets, and doctor checks.
+- `client_kind` is a closed set: `openai`, `anthropic`, `mcp`, and `shell`.
+  Doctor checks classify each result as blocking or advisory.
 
 Verification additions:
 
@@ -223,8 +260,10 @@ Adopted plan additions:
   activates panel behavior`.
 - `--role` creates ordinary pool arguments; it does not create another routing
   engine.
-- `--model` and `--providers` remain explicit overrides. Output provenance must
-  show that the user overrode the role defaults.
+- `--model`, `--providers`, `--routing`, and `--max-tokens` remain explicit
+  overrides. Output provenance must show that the user overrode role defaults.
+- `freellmpool roles` prints one role per line. Unknown-role errors list valid
+  role names.
 
 Verification additions:
 
@@ -247,8 +286,12 @@ Adopted plan additions:
 - `playground --port <port>` prints the existing `/playground` URL if a proxy
   is already reachable; it must not start nested proxy servers.
 - `/playground` is self-contained, framework-free HTML/JS with no external
-  network resources.
+  network resources, no CDN scripts, no external stylesheets, and no remote
+  images.
 - `POST /freellmpool/battle` enforces the same proxy auth as `/v1`.
+- `POST /freellmpool/battle` accepts JSON fields `prompt`, `n` or `models`,
+  `max_tokens`, `routing`, and `synthesize`; it returns `answers`,
+  `synthesis`, `truncated`, and `markdown`.
 
 Verification additions:
 
@@ -268,12 +311,16 @@ Adopted plan additions:
   variables, input mode, and output mode.
 - CLI input modes map explicitly to prompt text, stdin, `--input <file>`, and
   `--path <glob>`.
+- Recipe templates use standard-library `string.Template` syntax. Missing
+  variables fail before provider calls and list the missing variable names.
 - `recipe run second-opinion` calls the WU-006 panel helper; it must not
   duplicate fan-out.
 - `metaswarm-worker-review` is concrete: input is a worker summary or patch plus
   validation output, role is `critic`, and output is blocking findings,
   verification gaps, and an approve/revise verdict.
 - Every bundled recipe has a copy-pastable example command.
+- `recipe list --json` uses schema version `1.0.0`, and bundled recipe files
+  include a `version` field for forward-compatible changes.
 
 Verification additions:
 
@@ -293,10 +340,14 @@ Adopted plan additions:
 - Add `jobs cancel <id>`.
 - `jobs watch` in the first foreground-only slice tails/render-refreshes the
   local JSONL state; no daemon is implied.
+- Job JSONL records are events with schema version `1.0.0` and event types
+  `queued`, `started`, `completed`, `failed`, and `cancelled`. Cancellation is a
+  new event, not mutation of an earlier queued record.
 - Duplicate recipe/path submissions create distinct jobs unless an explicit
   `--dedupe` option is added.
-- `jobs run --max-failures N` halts after N consecutive failures but preserves
-  each failure and does not corrupt unrelated queued jobs.
+- `jobs run --max-failures N` halts after N consecutive failed job executions
+  within that run, preserves each failure, and does not corrupt unrelated queued
+  jobs.
 
 Verification additions:
 
@@ -321,6 +372,9 @@ Adopted plan additions:
   duplicating fan-out.
 - Wise mode can warn or require confirmation before expensive fan-out; WU-010
   owns the policy, WU-006 exposes the hook.
+- The shared helper returns structured records with provider, model, latency,
+  text, and error. Synthesis failures are represented as non-fatal errors while
+  preserving individual answers for CLI output and later report records.
 
 Verification additions:
 
@@ -343,7 +397,8 @@ Adopted plan additions:
 - Generated session tokens are URL-safe, session-only, printed at serve
   startup, and never persisted to config, reports, or status output.
 - Unsafe non-loopback binds continue to require explicit LAN acknowledgement and
-  auth.
+  auth. `--allow-lan` without auth is refused unless the user also passes the
+  explicit `--allow-no-auth` escape hatch.
 
 Verification additions:
 
@@ -361,13 +416,17 @@ Adopted plan additions:
 
 - Run IDs and report paths are deterministic under the user data directory, for
   example `reports/<run-id>.md` and `reports/<run-id>.html`.
+- `RunRecord` uses schema version `1.0.0`. `report last` reads the newest valid
+  run record by append order, not by filesystem mtime or a mutable pointer.
 - `report last --html --open` uses the OS opener when available and falls back
   to printing the path.
 - HTML reports are self-contained and escaped. Markdown reports preserve prose,
   but HTML treats prompts, model text, errors, labels, and recipe names as
   untrusted input.
 - `cost show <run-id>` is an explicit WU-008 report adjunct. It must fail
-  clearly when the run is missing and suggest `report list`.
+  clearly when the run is missing and suggest `report list`. Cost/quota output
+  uses local catalog hints, local quota counters, and recorded metadata; it does
+  not call provider billing APIs.
 
 Verification additions:
 
@@ -394,7 +453,8 @@ Adopted plan additions:
   and `--max-tokens` override mode defaults and are shown as overrides.
 - Expensive operations include `tokenmax`, panel/battle fan-out above the wise
   threshold, and large job batches. Interactive runs prompt; non-interactive
-  runs fail fast unless `--yes` is present.
+  runs fail fast unless `--yes` is present. `--yes` authorizes the requested
+  free-quota operation; it does not authorize silent paid routing.
 
 Verification additions:
 
