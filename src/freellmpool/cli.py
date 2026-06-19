@@ -1474,6 +1474,154 @@ def cmd_recipe_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_jobs_add(args: argparse.Namespace) -> int:
+    """Queue a recipe or ask job to the local JSONL store."""
+    from .jobs import JOB_KIND_ASK, JOB_KIND_RECIPE, JobError, JobSpec, JobStore
+
+    try:
+        if args.recipe:
+            spec_payload: dict[str, object] = {
+                "kind": JOB_KIND_RECIPE,
+                "recipe": args.recipe,
+                "prompt": args.prompt or "",
+            }
+            if args.input:
+                spec_payload["input"] = args.input
+            if args.path:
+                spec_payload["path"] = args.path
+            if args.validation_output is not None:
+                spec_payload["validation_output"] = args.validation_output
+            if args.validation_output_file:
+                spec_payload["validation_output_file"] = args.validation_output_file
+            spec_payload["opinions"] = args.opinions
+            spec_payload["synthesize"] = bool(args.synthesize)
+            if args.max_tokens is not None:
+                spec_payload["max_tokens"] = args.max_tokens
+            spec_payload["timeout"] = args.timeout
+            dedupe = args.recipe if args.dedupe else None
+        elif args.role or args.prompt:
+            if args.role and not args.prompt:
+                print(
+                    "freellmpool jobs add: --role requires a prompt",
+                    file=sys.stderr,
+                )
+                return 2
+            spec_payload = {
+                "kind": JOB_KIND_ASK,
+                "role": args.role,
+                "prompt": args.prompt or "",
+            }
+            if args.max_tokens is not None:
+                spec_payload["max_tokens"] = args.max_tokens
+            spec_payload["timeout"] = args.timeout
+            dedupe = args.role if args.dedupe else None
+        else:
+            print(
+                "freellmpool jobs add: provide --recipe <name> [prompt] or --role <role> with a prompt",
+                file=sys.stderr,
+            )
+            return 2
+        store = JobStore()
+        kind = str(spec_payload["kind"])
+        job = store.add(JobSpec(kind=kind, payload=spec_payload, dedupe_key=dedupe))
+    except JobError as exc:
+        print(f"freellmpool jobs add: {exc}", file=sys.stderr)
+        return 3
+
+    print(job.job_id)
+    return 0
+
+
+def cmd_jobs_list(args: argparse.Namespace) -> int:
+    from .jobs import JobStore, render_jobs
+
+    store = JobStore()
+    if args.status:
+        statuses = {s.strip() for s in args.status.split(",") if s.strip()}
+        jobs = [job for job in store.jobs() if job.status in statuses]
+    else:
+        jobs = store.jobs()
+    print(render_jobs(jobs))
+    return 0
+
+
+def cmd_jobs_run(args: argparse.Namespace) -> int:
+    """Process pending queued jobs in the foreground."""
+    from .jobs import (
+        JobError,
+        JobStore,
+        render_run_plan,
+        render_run_summary,
+        run_pending_jobs,
+    )
+
+    # Validate --limit consistently for dry-run and real runs so a
+    # --limit < 1 fails the same way regardless of which path was taken.
+    # The real-run path would also raise the same error, but validating
+    # here lets us short-circuit before reading the store.
+    if args.limit is not None and args.limit < 1:
+        print("freellmpool jobs run: --limit must be >= 1", file=sys.stderr)
+        return 3
+
+    store = JobStore()
+    if args.dry_run:
+        # Dry-run prints the same limited execution subset a real limited
+        # run would process, but it never mutates the queue. We honour
+        # ``--max-failures`` shape-wise too: --max-failures N still
+        # affects the real runner, not the dry-run plan renderer, so we
+        # do not pass it here.
+        try:
+            plan = render_run_plan(store.pending(), limit=args.limit)
+        except JobError as exc:
+            print(f"freellmpool jobs run: {exc}", file=sys.stderr)
+            return 3
+        print(plan)
+        return 0
+    try:
+        outcome = run_pending_jobs(
+            store,
+            dry_run=False,
+            max_failures=args.max_failures,
+            limit=args.limit,
+        )
+    except JobError as exc:
+        print(f"freellmpool jobs run: {exc}", file=sys.stderr)
+        return 3
+
+    print(render_run_summary(outcome))
+    if outcome.halted_by_max_failures:
+        return 5
+    if outcome.had_failures:
+        return 4
+    return 0
+
+
+def cmd_jobs_watch(args: argparse.Namespace) -> int:
+    """Render the replayed job queue once (refresh mode)."""
+    from .jobs import JobStore, render_jobs
+
+    store = JobStore()
+    print(render_jobs(store.jobs()))
+    return 0
+
+
+def cmd_jobs_cancel(args: argparse.Namespace) -> int:
+    from .jobs import JobError, JobStore, UnknownJobError
+
+    store = JobStore()
+    try:
+        job = store.cancel(args.job_id)
+    except UnknownJobError as exc:
+        print(f"freellmpool jobs cancel: {exc}", file=sys.stderr)
+        return 3
+    except JobError as exc:
+        print(f"freellmpool jobs cancel: {exc}", file=sys.stderr)
+        return 3
+
+    print(f"{job.job_id} {job.status}")
+    return 0
+
+
 def cmd_report_list(args: argparse.Namespace) -> int:
     from .artifacts import RunRecordStore
     from .reports import render_record_list
@@ -1782,6 +1930,75 @@ def build_parser() -> argparse.ArgumentParser:
     p_recipe_run.add_argument("--max-tokens", type=int, default=None, help="max output tokens")
     p_recipe_run.add_argument("--timeout", type=float, default=90.0, help="upstream timeout seconds")
     p_recipe_run.set_defaults(func=cmd_recipe_run)
+
+    p_jobs = sub.add_parser(
+        "jobs",
+        help="local foreground job queue for slow, quota-aware work",
+    )
+    jobs_sub = p_jobs.add_subparsers(dest="jobs_command", required=True)
+
+    p_jobs_add = jobs_sub.add_parser("add", help="queue a recipe or ask job")
+    p_jobs_add.add_argument("--recipe", help="bundle a named recipe as the job's payload")
+    p_jobs_add.add_argument(
+        "--role", help="queue an ask job with a role preset (requires a prompt)"
+    )
+    p_jobs_add.add_argument("prompt", nargs="?", default="", help="prompt or recipe text")
+    p_jobs_add.add_argument("--input", help="recipe input file")
+    p_jobs_add.add_argument("--path", help="recipe path glob (path recipes)")
+    p_jobs_add.add_argument("--validation-output", help="recipe validation output text")
+    p_jobs_add.add_argument(
+        "--validation-output-file", help="read recipe validation output from a file"
+    )
+    p_jobs_add.add_argument(
+        "--opinions", type=int, default=3, help="panel size for panel recipes"
+    )
+    p_jobs_add.add_argument("--synthesize", action="store_true", help="append panel synthesis")
+    p_jobs_add.add_argument("--max-tokens", type=int, default=None, help="max output tokens")
+    p_jobs_add.add_argument("--timeout", type=float, default=90.0, help="upstream timeout seconds")
+    p_jobs_add.add_argument(
+        "--dedupe",
+        action="store_true",
+        help="reject re-submission of the same recipe/role while pending",
+    )
+    p_jobs_add.set_defaults(func=cmd_jobs_add)
+
+    p_jobs_list = jobs_sub.add_parser("list", help="show replayed queue state")
+    p_jobs_list.add_argument(
+        "--status",
+        help="comma-separated status filter (pending, running, completed, failed, cancelled)",
+    )
+    p_jobs_list.set_defaults(func=cmd_jobs_list)
+
+    p_jobs_run = jobs_sub.add_parser(
+        "run",
+        help="process pending jobs in the foreground (no daemon)",
+    )
+    p_jobs_run.add_argument("--limit", type=int, default=None, help="max jobs to run this invocation")
+    p_jobs_run.add_argument(
+        "--max-failures",
+        type=int,
+        default=None,
+        help="stop after N consecutive failed executions in this run",
+    )
+    p_jobs_run.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print execution order without mutating the queue",
+    )
+    p_jobs_run.set_defaults(func=cmd_jobs_run)
+
+    p_jobs_watch = jobs_sub.add_parser(
+        "watch",
+        help="render the replayed queue (refresh; no daemon)",
+    )
+    p_jobs_watch.set_defaults(func=cmd_jobs_watch)
+
+    p_jobs_cancel = jobs_sub.add_parser(
+        "cancel",
+        help="append a cancel tombstone for a queued or running job",
+    )
+    p_jobs_cancel.add_argument("job_id", help="job id from `freellmpool jobs list`")
+    p_jobs_cancel.set_defaults(func=cmd_jobs_cancel)
 
     p_report = sub.add_parser("report", help="render local Markdown/HTML run reports")
     report_sub = p_report.add_subparsers(dest="report_command", required=True)

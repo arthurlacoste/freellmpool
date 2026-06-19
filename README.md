@@ -300,6 +300,35 @@ freellmpool recipe run metaswarm-worker-review --input worker.md --validation-ou
 Recipes use the same role presets and shared panel helper as `ask` and `battle`;
 there is no separate routing engine.
 
+### Local foreground job queue
+
+For slow, quota-aware work that should not block a live session, queue jobs to
+an append-only JSONL log under your config dir (override with
+`FREELLMPOOL_JOBS_PATH`). The queue is foreground-only: `jobs run` processes
+one job at a time, records started/completed/failed/cancelled events, and
+writes a Markdown report for every completed run via the WU-008 helpers.
+
+```bash
+# queue a recipe job
+freellmpool jobs add --recipe pr-review --input patch.diff
+
+# queue an ask job with a role preset
+freellmpool jobs add --role summarizer "summarize the latest changelog"
+
+freellmpool jobs list            # replayed state (idempotent across restarts)
+freellmpool jobs watch           # one-shot refresh render, no daemon
+
+freellmpool jobs run --dry-run   # print execution order, mutate nothing
+freellmpool jobs run --max-failures 2   # halt after N consecutive failures
+freellmpool jobs cancel <job-id> # append a cancel tombstone, not a mutation
+```
+
+Cancellation is a new tombstone event, not a re-write of the earlier queued
+record — a crash before `jobs run` finishes still leaves the queue
+replayable, and cancelled jobs stay cancelled after restart. Duplicate
+submissions create distinct jobs; pass `--dedupe` to reject re-submission of
+the same recipe or role while a job is still pending.
+
 ## As an MCP server
 
 `freellmpool mcp` runs a Model Context Protocol server over stdio, so Claude

@@ -12,6 +12,7 @@
 | MCP server | `src/freellmpool/mcp_server.py` | Local stdio MCP server exposing free-model ask, panel, tokenmax, route, model, quota, and stats tools. | `handle_request`, tool handlers, `main` |
 | CLI | `src/freellmpool/cli.py` | User-facing command dispatch for ask, proxy, MCP, providers, tokenmax, health, stats, keys, and catalog workflows. | `main` |
 | Tokenmax | `src/freellmpool/tokenmax.py` | Fan-out model selection/execution across many free routes and synthesis support. | `select_targets`, `fan_out` |
+| Job queue | `src/freellmpool/jobs.py` | Local foreground job queue: append-only JSONL events, replay-safe cancellation, and WU-008 report integration for completed runs. | `JobStore.add`, `JobStore.cancel`, `JobStore.jobs`, `run_pending_jobs` |
 | Role presets | `src/freellmpool/roles.py` | CLI ask-role presets that map user intent to routing, token, temperature, and system-prompt defaults without adding a second routing engine. | `valid_roles`, `get_role`, `format_roles` |
 
 ## Factories
@@ -27,6 +28,7 @@
 | Quota store | `src/freellmpool/quota.py` | Local per-day usage tracking for provider/model routes. |
 | Stats store | `src/freellmpool/stats.py` | Lifetime token and request totals for savings/stat commands. |
 | Key inventory | `src/freellmpool/key_inventory.py` | Local provider key inventory used by `freellmpool keys`. |
+| Job queue | `src/freellmpool/jobs.py` | Append-only JSONL job log (`jobs.jsonl`) with replay-safe cancel tombstones. |
 
 ## Shared Modules
 
