@@ -14,9 +14,16 @@ LISTING_FILES = (
     "mcp-so-issue.md",
     "pulsemcp-submission.md",
 )
+# Tools actually exposed by the MCP server. Listings must mention exactly these.
 MCP_TOOLS = (
     "free_llm_ask",
     "free_llm_panel",
+    "free_llm_second_opinion",
+    "free_llm_battle",
+    "free_llm_recipe",
+    "free_llm_roles",
+    "free_llm_tailnet_info",
+    "free_llm_quota_wise",
     "tokenmax",
     "free_llm_route",
     "free_llm_models",
@@ -38,6 +45,18 @@ def test_server_json_is_registry_ready_for_stdio_package():
     }
     assert "19 LLM providers" in server["description"]
     assert "tokenmax" in server["description"]
+    # WU-011: registry description surfaces the new UX tools too.
+    for new_tool in (
+        "second-opinion",
+        "battle",
+        "recipe",
+        "roles",
+        "tailnet",
+        "quota-wise",
+    ):
+        assert new_tool in server["description"].lower(), (
+            f"server.json description should mention {new_tool}"
+        )
     assert package["registryType"] == "pypi"
     assert package["identifier"] == "freellmpool"
     assert package["version"] == __version__

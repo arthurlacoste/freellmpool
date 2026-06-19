@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from helpers import make_post, openai_body
 
 from freellmpool.mcp_server import handle_message
@@ -48,12 +49,65 @@ def test_tools_list(providers, env, quota):
     assert names == {
         "free_llm_ask",
         "free_llm_panel",
+        "free_llm_second_opinion",
+        "free_llm_battle",
+        "free_llm_recipe",
+        "free_llm_roles",
+        "free_llm_tailnet_info",
+        "free_llm_quota_wise",
         "tokenmax",
         "free_llm_route",
         "free_llm_models",
         "free_llm_quota",
         "free_llm_stats",
     }
+
+
+# Tools MUST NOT expose mutating policy knobs (e.g. a set_policy tool).
+@pytest.mark.parametrize("forbidden_name", ["set_policy", "set_mode", "set_routing"])
+def test_tools_list_has_no_mutating_policy_tool(providers, env, quota, forbidden_name):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(pool, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    names = {t["name"] for t in resp["result"]["tools"]}
+    assert forbidden_name not in names
+
+
+def test_tool_schemas_expose_expected_fields(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(pool, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    by_name = {t["name"]: t for t in resp["result"]["tools"]}
+
+    # Panel-style tools share the same shape (n clamp 2-5, max_tokens, synthesize, routing enum).
+    for tool_name in ("free_llm_panel", "free_llm_second_opinion", "free_llm_battle"):
+        schema = by_name[tool_name]["inputSchema"]
+        assert "prompt" in schema["required"]
+        props = schema["properties"]
+        assert props["n"]["type"] == "integer"
+        assert "synthesize" in props
+        assert props["routing"]["enum"] == ["auto", "fast", "quality", "fair", "spread"]
+        assert props["max_tokens"]["type"] == "integer"
+
+    # Recipe: bounded argument shape, no duplicate dispatch logic.
+    recipe_schema = by_name["free_llm_recipe"]["inputSchema"]
+    assert recipe_schema["required"] == ["name"]
+    assert {"name", "prompt", "path", "input", "validation_output", "opinions", "synthesize", "max_tokens"} <= set(
+        recipe_schema["properties"]
+    )
+
+    # Roles: optional single-name filter.
+    roles_schema = by_name["free_llm_roles"]["inputSchema"]
+    assert "name" in roles_schema["properties"]
+
+    # Tailnet info: optional port.
+    tailnet_schema = by_name["free_llm_tailnet_info"]["inputSchema"]
+    assert tailnet_schema["properties"]["port"]["type"] == "integer"
+
+    # Quota-wise: no required args, no provider key fields.
+    quota_wise_schema = by_name["free_llm_quota_wise"]["inputSchema"]
+    assert quota_wise_schema.get("required", []) == []
+    quota_wise_props = " ".join(quota_wise_schema["properties"].keys())
+    assert "api_key" not in quota_wise_props.lower()
+    assert "bearer" not in quota_wise_props.lower()
 
 
 def test_tools_call_quota(providers, env, quota):
@@ -427,3 +481,370 @@ def test_batch_returns_single_json_array(providers, env, quota):
     arr = json.loads(lines[0])
     assert isinstance(arr, list) and len(arr) == 2  # notification omitted
     assert {r["id"] for r in arr} == {1, 2}
+
+
+# ---------------------------------------------------------------------------
+# WU-011: new agent-facing UX tools (roles, recipe, battle, second_opinion,
+# tailnet info, quota-wise). Keep free_llm_panel for backward compatibility.
+# ---------------------------------------------------------------------------
+
+
+def test_tools_call_roles_lists_bundled_roles(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {"jsonrpc": "2.0", "id": 100, "method": "tools/call", "params": {"name": "free_llm_roles"}},
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert resp["result"]["isError"] is False
+    # Spot-check a few role names from roles.py.
+    for role_name in ("coder", "critic", "summarizer", "second-opinion", "fast", "cheap"):
+        assert role_name in text
+
+
+def test_tools_call_roles_returns_single_role_details(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 101,
+            "method": "tools/call",
+            "params": {"name": "free_llm_roles", "arguments": {"name": "coder"}},
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert resp["result"]["isError"] is False
+    assert "coder" in text
+    assert "routing" in text
+
+
+def test_tools_call_roles_unknown_role_is_tool_error(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 102,
+            "method": "tools/call",
+            "params": {"name": "free_llm_roles", "arguments": {"name": "no-such-role"}},
+        },
+    )
+    assert resp["result"]["isError"] is True
+
+
+def test_tools_call_second_opinion_clamps_count(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 110,
+            "method": "tools/call",
+            "params": {
+                "name": "free_llm_second_opinion",
+                "arguments": {"prompt": "hi", "n": 99},
+            },
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert resp["result"]["isError"] is False
+    # 6 fake providers, panel cap is 5 → 5 sections.
+    assert text.count("###") == 5
+
+
+def test_tools_call_second_opinion_reuses_panel_helper(providers, env, quota):
+    """Second-opinion must reuse the panel behavior, not duplicate it."""
+    import freellmpool.mcp_server as mcp
+
+    # After import, the second_opinion handler is the same function object as panel.
+    assert mcp._tool_second_opinion is mcp._tool_panel
+
+
+def test_tools_call_second_opinion_missing_prompt_is_tool_error(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 111,
+            "method": "tools/call",
+            "params": {"name": "free_llm_second_opinion", "arguments": {}},
+        },
+    )
+    assert resp["result"]["isError"] is True
+
+
+def test_tools_call_battle_renders_comparison_markdown(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 120,
+            "method": "tools/call",
+            "params": {"name": "free_llm_battle", "arguments": {"prompt": "compare"}},
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert resp["result"]["isError"] is False
+    assert "# freellmpool battle" in text
+    assert "| model | result |" in text
+
+
+def test_tools_call_battle_per_model_failures_stay_visible(providers, env, quota):
+    """A failing provider must not abort the whole battle."""
+    post = make_post({"alpha.test": (500, {"error": "down"})})
+    pool = _pool(providers, env, quota, post=post)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 121,
+            "method": "tools/call",
+            "params": {"name": "free_llm_battle", "arguments": {"prompt": "hi", "n": 3}},
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    # Tool still returns content (not isError), and the per-model failure is visible.
+    assert resp["result"]["isError"] is False
+    assert "failed:" in text
+
+
+def test_tools_call_battle_missing_prompt_is_tool_error(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 122,
+            "method": "tools/call",
+            "params": {"name": "free_llm_battle", "arguments": {"prompt": "  "}},
+        },
+    )
+    assert resp["result"]["isError"] is True
+
+
+def test_tools_call_recipe_runs_text_recipe_with_fake_providers(providers, env, quota):
+    """free_llm_recipe runs a real bundled recipe end-to-end with fake providers."""
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 130,
+            "method": "tools/call",
+            "params": {
+                "name": "free_llm_recipe",
+                "arguments": {"name": "pr-review", "prompt": "diff --git a/app.py b/app.py\n"},
+            },
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert resp["result"]["isError"] is False
+    assert "pr-review" in text
+    # Fake providers return "ok" via the default post script.
+    assert "ok" in text
+
+
+def test_tools_call_recipe_panel_recipe_renders_panel(providers, env, quota):
+    """A panel-output recipe (second-opinion) reuses run_panel + render_panel_markdown."""
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 131,
+            "method": "tools/call",
+            "params": {
+                "name": "free_llm_recipe",
+                "arguments": {"name": "second-opinion", "prompt": "is this safe?", "opinions": 2},
+            },
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert resp["result"]["isError"] is False
+    assert "freellmpool panel" in text
+    assert text.count("###") >= 2
+
+
+def test_tools_call_recipe_unknown_name_is_tool_error(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 132,
+            "method": "tools/call",
+            "params": {"name": "free_llm_recipe", "arguments": {"name": "nope"}},
+        },
+    )
+    assert resp["result"]["isError"] is True
+    assert "unknown recipe" in resp["result"]["content"][0]["text"]
+
+
+def test_tools_call_recipe_missing_name_is_tool_error(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 133,
+            "method": "tools/call",
+            "params": {"name": "free_llm_recipe", "arguments": {}},
+        },
+    )
+    assert resp["result"]["isError"] is True
+
+
+def test_tools_call_recipe_missing_variable_is_tool_error_not_traceback(providers, env, quota):
+    """metaswarm-worker-review requires a non-empty `validation_output`."""
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 134,
+            "method": "tools/call",
+            "params": {
+                "name": "free_llm_recipe",
+                "arguments": {"name": "metaswarm-worker-review", "prompt": "worker summary"},
+            },
+        },
+    )
+    assert resp["result"]["isError"] is True
+    text = resp["result"]["content"][0]["text"]
+    assert "validation_output" in text
+    assert "Traceback" not in text
+
+
+def test_tools_call_recipe_missing_input_is_tool_error_not_traceback(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 135,
+            "method": "tools/call",
+            "params": {"name": "free_llm_recipe", "arguments": {"name": "pr-review"}},
+        },
+    )
+    assert resp["result"]["isError"] is True
+    text = resp["result"]["content"][0]["text"]
+    assert "Traceback" not in text
+
+
+def test_tools_call_tailnet_info_handles_missing_tailscale(providers, env, quota, monkeypatch):
+    """When tailscale is not on PATH, the tool degrades gracefully (no crash, no leak)."""
+    import freellmpool.tailnet as tailnet
+
+    monkeypatch.setattr(tailnet.shutil, "which", lambda _: None)
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 140,
+            "method": "tools/call",
+            "params": {"name": "free_llm_tailnet_info", "arguments": {}},
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    # Degraded path returns a friendly status, no isError, no provider-key strings.
+    assert resp["result"].get("isError") in (False, None)
+    assert "Tailnet:" in text
+    assert "tailscale" in text.lower() or "tailnet" in text.lower()
+    # No provider-shaped env leaks into the response.
+    forbidden_substrings = ("GROQ_API_KEY", "CEREBRAS_API_KEY", "OPENAI_API_KEY=", "ANTHROPIC_API_KEY=")
+    for needle in forbidden_substrings:
+        assert needle not in text
+
+
+def test_tools_call_tailnet_info_usable_path_uses_placeholder_token(providers, env, quota, monkeypatch):
+    """When tailscale reports a usable 100.x IPv4, the response uses a placeholder proxy key."""
+    from types import SimpleNamespace
+
+    import freellmpool.tailnet as tailnet
+
+    monkeypatch.setattr(tailnet.shutil, "which", lambda _: "/usr/bin/tailscale")
+
+    def fake_runner(args, timeout):
+        return SimpleNamespace(returncode=0, stdout="100.64.0.42\n", stderr="", args=tuple(args))
+
+    monkeypatch.setattr(tailnet, "_run_tailscale", lambda args, *, timeout, binary: fake_runner(args, timeout))
+
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 141,
+            "method": "tools/call",
+            "params": {"name": "free_llm_tailnet_info", "arguments": {"port": 9090}},
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert "100.64.0.42" in text
+    # Real proxy bearer tokens are NEVER exposed.
+    # The hints block uses <proxy-key> as a placeholder.
+    assert "<proxy-key>" in text
+    # Provider API keys are never exposed.
+    for needle in ("GROQ_API_KEY=", "CEREBRAS_API_KEY=", "OPENROUTER_API_KEY="):
+        assert needle not in text
+
+
+def test_tools_call_tailnet_info_rejects_invalid_port(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 142,
+            "method": "tools/call",
+            "params": {"name": "free_llm_tailnet_info", "arguments": {"port": 999999}},
+        },
+    )
+    assert resp["result"]["isError"] is True
+
+
+def test_tools_call_quota_wise_renders_local_headroom(providers, env, quota, monkeypatch):
+    """quota_wise must render local counters and not recommend rotation / bypass."""
+    pool = _pool(providers, env, quota)
+    # Add a recorded call so the snapshot has data.
+    pool.ask("warm")
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 150,
+            "method": "tools/call",
+            "params": {"name": "free_llm_quota_wise"},
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert resp["result"]["isError"] is False
+    assert "Quota-wise" in text or "quota" in text.lower()
+    assert "advice" in text.lower()
+    # Anti-bypass / anti-rotation guarantees.
+    forbidden = ("rotate account", "rotate accounts", "bypass rate", "rate-limit bypass", "automatic paid", "paid fallback", "switch account", "switch accounts")
+    for needle in forbidden:
+        assert needle not in text.lower()
+    # Only acceptable phrasing is allowed (substring presence proves the advice is shaped).
+    assert "wait for the utc reset" in text.lower()
+    assert "lower fan-out" in text.lower()
+
+
+def test_tools_call_quota_wise_never_leaks_keys_or_tokens(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 151,
+            "method": "tools/call",
+            "params": {"name": "free_llm_quota_wise"},
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    for needle in ("GROQ_API_KEY", "CEREBRAS_API_KEY", "bearer", "Authorization:"):
+        assert needle not in text

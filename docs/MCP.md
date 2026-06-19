@@ -13,7 +13,13 @@ and it works (keyless providers). Add keys to unlock more.
 | Tool | What it does |
 |---|---|
 | `free_llm_ask` | Ask a free model (`prompt`, optional `system` / `model` / `provider` / `routing` / `max_tokens`). The reply names the serving model. |
-| `free_llm_panel` | Ask the **same** prompt to 2-5 different free models at once and compare — the agent-facing second-opinion surface. Optional `synthesize` merges them into one best answer; synthesis failure leaves the individual answers visible. |
+| `free_llm_panel` | Ask the **same** prompt to 2-5 different free models at once and compare. Optional `synthesize` merges them into one best answer; synthesis failure leaves the individual answers visible. |
+| `free_llm_second_opinion` | Agent-facing second-opinion surface. Same panel behavior as `free_llm_panel` — exposed as its own tool so callers can declare intent (`prompt`, `n`, `synthesize`, `routing`, `max_tokens`). |
+| `free_llm_battle` | Bounded multi-model comparison rendered as a Markdown table (`prompt`, `n`, `synthesize`, `routing`, `max_tokens`). Per-model failures stay visible in the output. |
+| `free_llm_recipe` | Run a bundled recipe end-to-end (e.g. `pr-review`, `second-opinion`, `repo-summary`). Bounded, role-driven, and pre-shaped; missing input/variables return a tool error, not a traceback. Args: `name`, `prompt`, `path`, `input`, `validation_output`, `opinions`, `synthesize`, `max_tokens`. |
+| `free_llm_roles` | List bundled ask-role presets (`coder`, `critic`, `summarizer`, `second-opinion`, …) with routing, max-tokens, and recommended use. Pass `name` for one role. |
+| `free_llm_tailnet_info` | Show safe Tailscale Tailnet connection instructions for serving the proxy on another machine. Output NEVER contains a real local bearer token (uses a `<proxy-key>` placeholder) and never leaks provider API keys. Degrades cleanly when `tailscale` is absent. Optional `port` (default 8080). |
+| `free_llm_quota_wise` | Local quota-mode / headroom advice from local counters only. Output NEVER recommends account rotation, rate-limit bypass, or automatic paid fallback — only "wait for UTC reset", "lower fan-out/token budget", or an explicit paid choice outside the default flow. |
 | `tokenmax` | 🌈 Gloriously excessive: blast the prompt to **every** free model across **every** provider at once, then the **calling** model synthesizes them all. Emits live `notifications/progress` (`🌈 TOKENMAXXING ▸ 47/168 models…`) so hosts like Claude Code show it ticking up, and a colorful rainbow banner in the result. Tongue-in-cheek, genuinely useful for hard questions. |
 | `free_llm_route` | Explain where a prompt **would** route (estimated difficulty + ranked candidate models) **without spending a token**. |
 | `free_llm_models` | List available `provider/model` ids. |

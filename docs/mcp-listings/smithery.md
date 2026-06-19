@@ -19,8 +19,9 @@ freellmpool
 
 ## Short description
 
-Run free LLM subtasks through MCP: ask, panel, tokenmax, routing preview,
-available models, daily quota, and lifetime stats.
+Run free LLM subtasks through MCP: ask, panel, second-opinion, battle, recipe,
+roles, tailnet info, quota-wise advice, tokenmax, routing preview, available
+models, daily quota, and lifetime stats.
 
 ## Long description
 
@@ -28,8 +29,11 @@ freellmpool is a local stdio MCP server for using free LLM provider tiers from
 Claude Desktop, Claude Code, Cursor, and other MCP clients. It works with no API
 keys through keyless providers, and users can add their own free provider keys to
 unlock more models and higher limits. The server exposes direct MCP tools for
-single-model asks, multi-model panels, maximum fan-out `tokenmax`, routing
-explanations, model discovery, quota status, and lifetime stats.
+single-model asks, multi-model panels, agent-facing second-opinion flows,
+Markdown battle comparisons, bundled recipes, role presets, safe Tailscale
+Tailnet setup hints, local quota-wise headroom advice, maximum fan-out
+`tokenmax`, routing explanations, model discovery, quota status, and lifetime
+stats.
 
 ## Links
 

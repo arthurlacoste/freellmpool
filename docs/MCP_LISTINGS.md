@@ -47,6 +47,12 @@ Tool surface to mention in every listing:
 
 - `free_llm_ask`
 - `free_llm_panel`
+- `free_llm_second_opinion`
+- `free_llm_battle`
+- `free_llm_recipe`
+- `free_llm_roles`
+- `free_llm_tailnet_info`
+- `free_llm_quota_wise`
 - `tokenmax`
 - `free_llm_route`
 - `free_llm_models`

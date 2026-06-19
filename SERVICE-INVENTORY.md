@@ -9,7 +9,7 @@
 | --- | --- | --- | --- |
 | `Pool` | `src/freellmpool/router.py` | Provider selection, failover, quota/metrics-aware routing, embeddings, transcription, and stats snapshots. | `ask`, `stream`, `embed`, `transcribe`, `stats_snapshot`, `lifetime_stats` |
 | Proxy server | `src/freellmpool/proxy.py` | Standard-library OpenAI-compatible HTTP gateway plus Responses and Anthropic Messages shims. | `serve`, request handlers for `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/status` |
-| MCP server | `src/freellmpool/mcp_server.py` | Local stdio MCP server exposing free-model ask, panel, tokenmax, route, model, quota, and stats tools. | `handle_request`, tool handlers, `main` |
+| MCP server | `src/freellmpool/mcp_server.py` | Local stdio MCP server exposing free-model ask, panel, second-opinion, battle, recipe, roles, tailnet info, quota-wise, tokenmax, route, model, quota, and stats tools. | `handle_request`, tool handlers, `main` |
 | CLI | `src/freellmpool/cli.py` | User-facing command dispatch for ask, proxy, MCP, providers, tokenmax, health, stats, keys, and catalog workflows. | `main` |
 | Tokenmax | `src/freellmpool/tokenmax.py` | Fan-out model selection/execution across many free routes and synthesis support. | `select_targets`, `fan_out` |
 | Job queue | `src/freellmpool/jobs.py` | Local foreground job queue: append-only JSONL events, replay-safe cancellation, and WU-008 report integration for completed runs. | `JobStore.add`, `JobStore.cancel`, `JobStore.jobs`, `run_pending_jobs` |
