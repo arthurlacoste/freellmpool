@@ -99,6 +99,26 @@ def battle_to_dict(result: PanelResult) -> dict:
     }
 
 
+def write_battle_record(result: PanelResult, *, store=None):
+    from .artifacts import RunRecordStore
+
+    payload = battle_to_dict(result)
+    store = store or RunRecordStore()
+    return store.append_new(
+        kind="battle",
+        title="freellmpool battle",
+        prompt=result.prompt,
+        output=payload["markdown"],
+        items=payload["answers"],
+        metadata={
+            "requested_count": result.requested_count,
+            "selected_count": result.selected_count,
+            "max_tokens": result.max_tokens,
+            "truncated": result.truncated,
+        },
+    )
+
+
 def _answer_cell(answer: PanelAnswer) -> str:
     if answer.error:
         return f"failed: `{_escape_cell(answer.error)}`"

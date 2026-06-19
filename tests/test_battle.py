@@ -7,7 +7,8 @@ import urllib.request
 
 from helpers import make_post, openai_body
 
-from freellmpool.battle import render_battle_markdown, run_battle
+from freellmpool.artifacts import RunRecordStore
+from freellmpool.battle import render_battle_markdown, run_battle, write_battle_record
 from freellmpool.models import Model, Provider
 from freellmpool.proxy import _playground_html, serve
 from freellmpool.router import Pool
@@ -88,6 +89,22 @@ def test_battle_synthesize_reuses_panel_synthesis_path(quota):
 
     assert result.synthesis is not None
     assert result.synthesis.text == "best combined answer"
+
+
+def test_battle_can_write_run_record(quota, tmp_path):
+    pool = Pool(
+        [_provider("alpha", "llama-3.1-8b"), _provider("beta", "qwen3-32b")],
+        quota=quota,
+        post=make_post({}),
+    )
+    store = RunRecordStore(tmp_path / "records.jsonl", reports_dir=tmp_path / "reports")
+
+    record = write_battle_record(run_battle(pool, "compare", n=2), store=store)
+
+    assert record.kind == "battle"
+    assert record.prompt == "compare"
+    assert len(record.items) == 2
+    assert store.last() == record
 
 
 def test_cli_battle_prints_markdown_and_warnings(providers, env, quota, monkeypatch, capsys):

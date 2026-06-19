@@ -1474,6 +1474,74 @@ def cmd_recipe_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report_list(args: argparse.Namespace) -> int:
+    from .artifacts import RunRecordStore
+    from .reports import render_record_list
+
+    store = RunRecordStore()
+    print(render_record_list(store.recent(limit=args.limit)))
+    return 0
+
+
+def cmd_report_last(args: argparse.Namespace) -> int:
+    from .artifacts import RunRecordStore
+    from .reports import open_report_path, render_html_report, render_markdown_report, write_report
+
+    store = RunRecordStore()
+    record = store.last()
+    if record is None:
+        print("freellmpool report: no run records found", file=sys.stderr)
+        return 3
+    fmt = "html" if args.html else "md"
+    path = write_report(record, fmt, store=store)
+    if args.open:
+        open_report_path(path)
+        return 0
+    if args.path:
+        print(path)
+        return 0
+    if args.html:
+        print(render_html_report(record))
+    else:
+        print(render_markdown_report(record), end="")
+    return 0
+
+
+def cmd_report_open(args: argparse.Namespace) -> int:
+    from .artifacts import RunRecordStore
+    from .reports import open_report_path, resolve_report_target, write_report
+
+    store = RunRecordStore()
+    record, path = resolve_report_target(store, args.target)
+    if record is None and path is None:
+        print("freellmpool report: no run records found", file=sys.stderr)
+        return 3
+    if record is not None:
+        path = write_report(record, "html", store=store)
+    assert path is not None
+    if not path.exists():
+        print(f"freellmpool report: report not found: {path}", file=sys.stderr)
+        return 3
+    open_report_path(path)
+    return 0
+
+
+def cmd_cost_show(args: argparse.Namespace) -> int:
+    from .artifacts import RunRecordStore
+    from .reports import render_cost_report
+
+    record = RunRecordStore().get(args.run_id)
+    if record is None:
+        print(
+            f"freellmpool cost: run not found: {args.run_id}. "
+            "Run `freellmpool report list` to see available runs.",
+            file=sys.stderr,
+        )
+        return 3
+    print(render_cost_report(record))
+    return 0
+
+
 def cmd_profile_list(args: argparse.Namespace) -> int:
     from .profiles import render_profile_list
 
@@ -1714,6 +1782,33 @@ def build_parser() -> argparse.ArgumentParser:
     p_recipe_run.add_argument("--max-tokens", type=int, default=None, help="max output tokens")
     p_recipe_run.add_argument("--timeout", type=float, default=90.0, help="upstream timeout seconds")
     p_recipe_run.set_defaults(func=cmd_recipe_run)
+
+    p_report = sub.add_parser("report", help="render local Markdown/HTML run reports")
+    report_sub = p_report.add_subparsers(dest="report_command", required=True)
+    p_report_list = report_sub.add_parser("list", help="list recent run records")
+    p_report_list.add_argument("--limit", type=int, default=20, help="number of records to show")
+    p_report_list.set_defaults(func=cmd_report_list)
+    p_report_last = report_sub.add_parser("last", help="render the newest valid run record")
+    p_report_last.add_argument(
+        "--markdown",
+        action="store_true",
+        help="render Markdown (default unless --html is passed)",
+    )
+    p_report_last.add_argument("--html", action="store_true", help="render HTML")
+    p_report_last.add_argument("--path", action="store_true", help="print the written report path")
+    p_report_last.add_argument("--open", action="store_true", help="open the written report path")
+    p_report_last.set_defaults(func=cmd_report_last)
+    p_report_open = report_sub.add_parser(
+        "open", help="open a generated report path or render/open a run id"
+    )
+    p_report_open.add_argument("target", nargs="?", help="run id or report file path")
+    p_report_open.set_defaults(func=cmd_report_open)
+
+    p_cost = sub.add_parser("cost", help="show local cost/quota audits for run records")
+    cost_sub = p_cost.add_subparsers(dest="cost_command", required=True)
+    p_cost_show = cost_sub.add_parser("show", help="show estimated cost avoided for a run")
+    p_cost_show.add_argument("run_id", help="run id from `freellmpool report list`")
+    p_cost_show.set_defaults(func=cmd_cost_show)
 
     p_prov = sub.add_parser("providers", help="list providers and configuration status")
     prov_sub = p_prov.add_subparsers(dest="providers_command")

@@ -100,6 +100,7 @@ class RecipeRun:
     output: str
     provider_id: str | None = None
     model: str | None = None
+    prompt: str = ""
 
 
 def list_recipes() -> list[Recipe]:
@@ -201,7 +202,7 @@ def run_recipe(
             timeout=timeout,
             synthesize=synthesize,
         )
-        return RecipeRun(recipe=recipe, output=render_panel_markdown(result))
+        return RecipeRun(recipe=recipe, output=render_panel_markdown(result), prompt=prompt)
 
     reply = pool.ask(
         prompt,
@@ -216,6 +217,28 @@ def run_recipe(
         output=reply.text,
         provider_id=reply.provider_id,
         model=reply.model,
+        prompt=prompt,
+    )
+
+
+def write_recipe_record(run: RecipeRun, *, store=None):
+    from .artifacts import RunRecordStore
+
+    store = store or RunRecordStore()
+    return store.append_new(
+        kind="recipe",
+        title=f"freellmpool recipe {run.recipe.name}",
+        prompt=run.prompt,
+        output=run.output,
+        provider_id=run.provider_id,
+        model=run.model,
+        recipe=run.recipe.name,
+        role=run.recipe.role,
+        metadata={
+            "recipe_version": run.recipe.version,
+            "input_mode": run.recipe.input_mode,
+            "output_mode": run.recipe.output_mode,
+        },
     )
 
 

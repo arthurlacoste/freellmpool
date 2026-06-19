@@ -4,6 +4,7 @@ import json
 import tomllib
 from pathlib import Path
 
+from freellmpool.artifacts import RunRecordStore
 from freellmpool.models import Reply
 from freellmpool.panel import PanelAnswer, PanelResult
 from freellmpool.recipes import (
@@ -13,6 +14,7 @@ from freellmpool.recipes import (
     list_recipes_json,
     render_prompt,
     run_recipe,
+    write_recipe_record,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,6 +90,25 @@ def test_recipe_run_text_file_uses_pool_ask(monkeypatch, tmp_path, capsys):
     assert captured["kwargs"]["max_tokens"] == 1024
     assert "critical reviewer" in captured["kwargs"]["system"].lower()
     assert "revise: missing test" in capsys.readouterr().out
+
+
+def test_recipe_run_can_write_run_record(monkeypatch, tmp_path):
+    recipe = get_recipe("pr-review")
+
+    class FakePool:
+        def ask(self, prompt, **kwargs):
+            return Reply(text="revise: missing test", provider_id="fake", model="critic", raw={})
+
+    run = run_recipe(FakePool(), recipe, input_text="diff --git a/app.py b/app.py")
+    store = RunRecordStore(tmp_path / "records.jsonl", reports_dir=tmp_path / "reports")
+
+    record = write_recipe_record(run, store=store)
+
+    assert record.kind == "recipe"
+    assert record.recipe == "pr-review"
+    assert "diff --git" in record.prompt
+    assert record.provider_id == "fake"
+    assert store.last() == record
 
 
 def test_recipe_run_second_opinion_uses_panel_helper(monkeypatch):
