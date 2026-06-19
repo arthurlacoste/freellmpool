@@ -100,6 +100,26 @@ reviewer lane, Tailnet URL setup for remote agents, and Codex/Opus as explicit
 user-owned paid escalation/final-review tools. freellmpool does not select those
 paid lanes silently.
 
+The copy-pastable setup path is:
+
+```bash
+freellmpool init --yes --agent metaswarm --tailnet
+freellmpool profile install metaswarm
+freellmpool tailnet serve --port 8080
+freellmpool profile doctor metaswarm --dry-run
+```
+
+## Workflows that help agents
+
+- `freellmpool roles` shows role presets (`coder`, `critic`, `summarizer`,
+  `second-opinion`, ...).
+- `freellmpool ask --role coder --second-opinion` can review an implementation
+  plan before a long agent run.
+- `freellmpool battle "which prompt version is clearer?"` compares model answers
+  side by side.
+- `freellmpool recipe run metaswarm-worker-review --input worker.md --validation-output-file validation.txt`
+  returns a structured review of a worker summary.
+
 ## aider (AI pair programming in your terminal)
 
 ```bash

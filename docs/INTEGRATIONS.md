@@ -210,6 +210,55 @@ DEFAULT_MODEL=auto
 OPENAI_API_KEY=anything
 ```
 
+## Tailnet gateway
+
+Serve the proxy over your Tailscale Tailnet so a remote agent or device can use
+it without exposing it to the public internet:
+
+```bash
+# On the serving machine
+freellmpool tailnet serve --port 8080
+```
+
+`tailnet serve` requires an API key by default. Omitting `--api-key` generates a
+session token and prints it exactly once. Do not run unauthenticated over a
+non-loopback interface.
+
+From a remote machine, copy the serving IP and token from `freellmpool tailnet
+connect`:
+
+```bash
+freellmpool tailnet connect <tailnet-ip> --port 8080
+```
+
+Both commands degrade to loopback guidance when Tailscale is missing or logged out.
+
+## Roles, recipes, jobs, and reports
+
+`freellmpool` also exposes helper workflows that do not need a third-party tool:
+
+- `freellmpool roles` lists ask-role presets such as `coder`, `critic`,
+  `summarizer`, `cheap`, `fast`, and `second-opinion`.
+- `freellmpool ask --second-opinion` runs a bounded multi-model panel and can
+  synthesize the answers.
+- `freellmpool battle "..."` prints a side-by-side Markdown comparison.
+- `freellmpool playground` opens the local `/playground` page served by the proxy.
+- `freellmpool recipe run pr-review --input patch.diff` and
+  `freellmpool recipe run repo-summary --path 'src/freellmpool/*.py'` run
+  versioned JSON workflows.
+- `freellmpool jobs add --recipe ...` queues slow, quota-aware work to a local
+  foreground JSONL queue, and `freellmpool report last --html --open` renders the
+  latest run artifact.
+
+Run `freellmpool recipe list` and `freellmpool jobs --help` for the full surface.
+
+## Provider caveats
+
+All provider traffic leaves your machine. Keyless endpoints are public, and
+keyed endpoints use your own credentials. Free-tier model IDs, daily caps, and
+availability drift without notice. freellmpool does not bypass provider rate
+limits, rotate accounts, or evade quotas.
+
 ## Automation
 
 ### n8n

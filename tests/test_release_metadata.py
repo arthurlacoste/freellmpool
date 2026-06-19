@@ -43,6 +43,28 @@ def test_client_user_agent_uses_package_version() -> None:
     assert f"freellmpool/{__version__}" in client._USER_AGENT
 
 
+def test_runtime_dependencies_guard_stdlib_first_contract() -> None:
+    """The stdlib-first contract only allows httpx as a required runtime dependency."""
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert pyproject["project"]["dependencies"] == ["httpx>=0.27"]
+
+
+def test_readme_has_copy_pastable_tailnet_and_metaswarm_paths() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "freellmpool tailnet serve --port 8080" in readme
+    assert "freellmpool tailnet connect <tailnet-ip> --port 8080" in readme
+    assert "freellmpool init --yes --agent metaswarm --tailnet" in readme
+    assert "freellmpool profile doctor metaswarm --dry-run" in readme
+
+
+def test_roadmap_reflects_kimi_m3_addendum() -> None:
+    roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
+    assert "Top 10 feature map" in roadmap
+    assert "Kimi/M3 Top-10 Planning Addendum" in roadmap
+    assert "PYTHONPATH=src" in roadmap
+    assert "No rate-limit bypass" in roadmap
+
+
 def test_pypi_metadata_has_launch_surfaces() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
     project = pyproject["project"]

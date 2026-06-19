@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -28,6 +29,38 @@ if str(_SCRIPTS) not in sys.path:
 from catalog_counts import catalog_counts  # noqa: E402
 
 from freellmpool._version import __version__  # noqa: E402
+
+# Public commands that WU-001 through WU-011 introduced. This release check makes
+# sure the CLI still advertises every surface we document.
+_EXPECTED_PUBLIC_COMMANDS = {
+    "ask",
+    "roles",
+    "tokenmax",
+    "battle",
+    "playground",
+    "recipe",
+    "jobs",
+    "report",
+    "cost",
+    "providers",
+    "models",
+    "quota",
+    "quota-wise",
+    "stats",
+    "badge",
+    "keys",
+    "catalog",
+    "capability",
+    "capacity",
+    "benchmark",
+    "doctor",
+    "proxy",
+    "tailnet",
+    "init",
+    "profile",
+    "mcp",
+    "code",
+}
 
 
 def _read(path: Path) -> str:
@@ -98,7 +131,41 @@ def metadata_errors(root: Path, *, version: str | None = None) -> list[str]:
         "docs/index.html cataloged model bucket mismatch",
     )
     require("16 providers, 56 models" not in demo_script, "scripts/demo.sh has stale proxy count")
+
+    # stdlib-first runtime contract: only httpx is a required runtime dependency.
+    runtime_deps = project.get("dependencies", [])
+    allowed_runtime = ["httpx>=0.27"]
+    if runtime_deps != allowed_runtime:
+        errors.append(
+            "stdlib-first contract: project.dependencies must be exactly "
+            f"{allowed_runtime!r}. Add an explicit architecture note before changing."
+        )
+
+    errors.extend(_public_command_errors(root))
+
     return errors
+
+
+def _public_command_errors(root: Path) -> list[str]:
+    """Verify the CLI advertises all the public commands documented for release."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+    result = subprocess.run(
+        [sys.executable, "-m", "freellmpool", "--help"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if result.returncode != 0:
+        return [f"freellmpool --help failed: {result.stderr.strip()}"]
+    choice_block = re.search(r"\{([^}]+)\}", result.stdout)
+    if choice_block is None:
+        return ["Could not find command choice block in freellmpool --help"]
+    commands = {c.strip() for c in choice_block.group(1).split(",")}
+    missing = sorted(_EXPECTED_PUBLIC_COMMANDS - commands)
+    if missing:
+        return [f"CLI is missing documented public commands: {missing}"]
+    return []
 
 
 def _run(cmd: list[str], *, cwd: Path) -> None:
@@ -114,12 +181,49 @@ def build_and_smoke(root: Path, *, version: str, dist_dir: Path | None = None) -
         dist = dist_dir
         if dist.exists():
             shutil.rmtree(dist)
+
+    # The host toolchain may ship an old pkginfo/twine that rejects
+    # Metadata-Version: 2.4 wheels. Create an isolated checker venv with
+    # packaging tools known to support modern metadata.
+    checker_tmp = tempfile.TemporaryDirectory(prefix="flp-release-checker-")
+    checker = Path(checker_tmp.name) / "venv"
+
     try:
-        _run([sys.executable, "-m", "build", "--outdir", str(dist)], cwd=root)
-        _run([sys.executable, "-m", "twine", "check", *[str(p) for p in sorted(dist.iterdir())]], cwd=root)
+        dist.mkdir(parents=True, exist_ok=True)
+
+        _run([sys.executable, "-m", "venv", str(checker)], cwd=root)
+        checker_py = checker / "bin" / "python"
+        _run([str(checker_py), "-m", "pip", "install", "--upgrade", "pip"], cwd=root)
+        _run(
+            [
+                str(checker_py),
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                "build>=1.2",
+                "twine>=6.0,<7.0",
+                "pkginfo>=1.12,<2.0",
+            ],
+            cwd=root,
+        )
+
+        _run([str(checker_py), "-m", "build", "--outdir", str(dist)], cwd=root)
+        _run(
+            [
+                str(checker_py),
+                "-m",
+                "twine",
+                "check",
+                *[str(p) for p in sorted(dist.iterdir())],
+            ],
+            cwd=root,
+        )
+
         wheels = sorted(dist.glob("*.whl"))
         if not wheels:
             raise RuntimeError("build produced no wheel")
+
         venv = dist.parent / "wheel-smoke"
         if venv.exists():
             shutil.rmtree(venv)
@@ -139,6 +243,7 @@ def build_and_smoke(root: Path, *, version: str, dist_dir: Path | None = None) -
     finally:
         if tmp is not None:
             tmp.cleanup()
+        checker_tmp.cleanup()
 
 
 def pypi_smoke(version: str) -> None:

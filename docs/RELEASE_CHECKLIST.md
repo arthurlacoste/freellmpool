@@ -10,12 +10,16 @@ push tags, or create a GitHub release from the polish automation branch.
 ```bash
 python -m pip install -e ".[dev]"
 ruff check .
-pytest
+PYTHONPATH=src python3 -m pytest
 scripts/check-counts
-python3 scripts/validate_catalog.py
-python3 scripts/check_release_ready.py --skip-build
-python3 scripts/check_release_ready.py
+PYTHONPATH=src python3 scripts/validate_catalog.py
+PYTHONPATH=src python3 scripts/check_release_ready.py --skip-build
+PYTHONPATH=src python3 scripts/check_release_ready.py
 ```
+
+`check_release_ready.py` now bootstraps its own compatible `twine`/`pkginfo`
+environment before running `twine check`, so host packaging-tool drift does not
+block the full release smoke.
 
 ## Tag
 

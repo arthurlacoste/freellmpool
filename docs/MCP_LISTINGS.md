@@ -1,6 +1,6 @@
 # MCP Registry Listing Status
 
-Updated on 2026-06-17 after the `freellmpool 0.11.4` release. The official MCP
+Updated on 2026-06-19 after the `freellmpool 0.11.4` release docs pass. The official MCP
 Registry entry and MCP.so submission are complete; Smithery, Glama, and PulseMCP
 still need account/web UI actions.
 

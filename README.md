@@ -55,6 +55,51 @@ freellmpool init --yes --agent metaswarm --tailnet
 
 Add keys for the other providers to unlock more models and higher limits.
 
+## First-run setup with `freellmpool init`
+
+`freellmpool init` inspects provider keys, installed agent CLIs, Tailscale
+state, and proxy config, then prints one copy-pastable next step without editing
+files. Run it detect-only first:
+
+```bash
+freellmpool init --yes
+```
+
+`--json` emits the same detection as versioned JSON for scripts and agents.
+
+### Tailnet / remote agent gateway
+
+Serve the proxy on your Tailscale 100.x address with a generated API key:
+
+```bash
+freellmpool tailnet serve --port 8080
+```
+
+From a remote machine:
+
+```bash
+freellmpool tailnet connect <tailnet-ip> --port 8080
+```
+
+Both sides support `--api-key <shared-secret>` if you want to pin a key instead
+of using a generated token. Tailnet serving requires auth by default; do not
+run unauthenticated over non-loopback interfaces.
+
+### Metaswarm agent lanes
+
+This project uses one Umans/Kimi K2.7 worker lane, one MiniMax M3 lane, Codex as
+escalation, and Claude Opus only for final pre-ship review. The installable
+Metaswarm profile mirrors that posture: one free/cheap worker lane through the
+local proxy, one larger freellmpool reviewer lane, and Codex/Opus as explicit
+user-owned paid escalation/final-review lanes only (never silent).
+
+```bash
+freellmpool init --yes --agent metaswarm --tailnet
+freellmpool profile install metaswarm
+freellmpool tailnet serve --port 8080
+freellmpool profile doctor metaswarm --dry-run
+```
+
 ## Run a coding agent on free models
 
 freellmpool's proxy speaks the OpenAI API and includes an experimental
@@ -139,6 +184,19 @@ equivalent so existing scripts keep working:
 freellmpool ask -m groq/llama-3.3-70b-versatile "hi"
 freellmpool ask -p cerebras,groq "hi"
 freellmpool ask -m gpt-4o-mini "hi"      # routed to a free model
+```
+
+### Roles
+
+`freellmpool roles` lists ask-role presets (`coder`, `critic`, `summarizer`,
+`long-context`, `cheap`, `fast`, `second-opinion`, ...). Each role sets routing,
+token budget, temperature, and system-prompt hints without inventing a second
+routing engine. Explicit flags (`--model`, `--providers`, `--routing`, `--max-tokens`)
+win over role defaults, and the verbose output shows when an override happened.
+
+```bash
+freellmpool ask --role coder "write a pytest for this function"
+FREELLMPOOL_MODE=wise freellmpool ask --role cheap "summarize this patch"
 ```
 
 ## As a proxy
@@ -445,6 +503,12 @@ Architecture notes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   default; if you expose it, set a key (`--api-key`).
 - The Claude Code / Anthropic path is experimental (text and tool use; no vision).
 - These are free tiers shared by everyone — don't abuse them.
+- Upstream providers receive and may prompt-title/moderate your requests; use
+  the FAQ privacy table and each provider's current terms before sending
+  sensitive prompts.
+- Free-tier availability, model IDs, and rate limits drift without notice.
+  freellmpool does not bypass provider limits, rotate accounts, or evade
+  quotas.
 
 ## How it compares
 
@@ -509,6 +573,10 @@ both are usually a small change to `providers.toml`. See
 ```bash
 python -m pip install -e ".[dev]" && ruff check . && pytest
 ```
+
+Source-first verification in this repo uses `PYTHONPATH=src` so `pytest` exercises
+the checkout without requiring an editable install first; CI runs the same
+configuration. Release readiness uses `PYTHONPATH=src python3 scripts/check_release_ready.py`.
 
 ## License
 
