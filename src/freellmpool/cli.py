@@ -1149,6 +1149,61 @@ def cmd_tailnet_connect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_profile_list(args: argparse.Namespace) -> int:
+    from .profiles import render_profile_list
+
+    print(render_profile_list())
+    return 0
+
+
+def cmd_profile_show(args: argparse.Namespace) -> int:
+    from .profiles import get_profile, render_profile
+
+    profile = get_profile(args.name)
+    if profile is None:
+        print(f"freellmpool: unknown profile '{args.name}'", file=sys.stderr)
+        return 3
+    print(render_profile(profile))
+    return 0
+
+
+def cmd_profile_install(args: argparse.Namespace) -> int:
+    from .profiles import get_profile, render_profile_quickstart
+
+    profile = get_profile(args.name)
+    if profile is None:
+        print(f"freellmpool: unknown profile '{args.name}'", file=sys.stderr)
+        return 3
+    print(render_profile_quickstart(profile))
+    print("\nConfig snippets:")
+    for label, snippet in sorted(profile.config_snippets.items()):
+        print(f"\n--- {label} ---")
+        print(snippet)
+    return 0
+
+
+def cmd_profile_doctor(args: argparse.Namespace) -> int:
+    from .profiles import (
+        get_profile,
+        profile_with_base_url,
+        render_doctor_plan,
+        run_doctor,
+    )
+
+    profile = get_profile(args.name)
+    if profile is None:
+        print(f"freellmpool: unknown profile '{args.name}'", file=sys.stderr)
+        return 3
+    if args.base_url:
+        profile = profile_with_base_url(profile, args.base_url)
+    if args.dry_run:
+        print(render_doctor_plan(profile))
+        return 0
+    code, lines = run_doctor(profile, timeout=args.timeout)
+    print("\n".join(lines))
+    return code
+
+
 def cmd_code(args: argparse.Namespace) -> int:
     from .agents import list_agents, render
 
@@ -1464,6 +1519,44 @@ def build_parser() -> argparse.ArgumentParser:
         "--port", type=int, default=8080, help="port the remote proxy is listening on"
     )
     p_tailnet_connect.set_defaults(func=cmd_tailnet_connect)
+
+    p_profile = sub.add_parser(
+        "profile", help="list, show, install, and diagnose agent profiles"
+    )
+    profile_sub = p_profile.add_subparsers(dest="profile_command", required=True)
+
+    p_profile_list = profile_sub.add_parser("list", help="list available profiles")
+    p_profile_list.set_defaults(func=cmd_profile_list)
+
+    p_profile_show = profile_sub.add_parser("show", help="show a profile")
+    p_profile_show.add_argument("name", help="profile name")
+    p_profile_show.set_defaults(func=cmd_profile_show)
+
+    p_profile_install = profile_sub.add_parser(
+        "install", help="print copy-pastable setup snippets for a profile"
+    )
+    p_profile_install.add_argument("name", help="profile name")
+    p_profile_install.set_defaults(func=cmd_profile_install)
+
+    p_profile_doctor = profile_sub.add_parser("doctor", help="check a profile setup")
+    p_profile_doctor.add_argument("name", help="profile name")
+    p_profile_doctor.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print checks without running binaries or network calls",
+    )
+    p_profile_doctor.add_argument(
+        "--base-url",
+        default=None,
+        help="override the local proxy base URL for URL checks",
+    )
+    p_profile_doctor.add_argument(
+        "--timeout",
+        type=float,
+        default=2.0,
+        help="per-check network timeout in seconds",
+    )
+    p_profile_doctor.set_defaults(func=cmd_profile_doctor)
 
     p_mcp = sub.add_parser(
         "mcp", help="run an MCP server (stdio) so MCP clients can use free models"

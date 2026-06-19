@@ -15,6 +15,18 @@ export OPENAI_API_KEY=anything   # ignored by freellmpool
 
 Then wire up your tool of choice.
 
+For structured setup, use profiles:
+
+```bash
+freellmpool profile list
+freellmpool profile show opencode
+freellmpool profile install opencode
+freellmpool profile doctor opencode --dry-run
+```
+
+`freellmpool code <agent>` remains a compatibility shortcut that renders the
+same profile quick-start.
+
 ## OpenAI Python SDK / OpenAI Agents SDK
 
 ```python
@@ -75,6 +87,18 @@ against a spec/rubric, runs a configurable strong-model panel through
 `freellmpool`, and emits a metaswarm-style JSON envelope. If no strong provider
 key is configured (`MISTRAL_API_KEY`, `NVIDIA_API_KEY`, or `OPENROUTER_API_KEY`
 by default), it returns `error_type: "auth_missing"` before any provider call.
+
+The first-class profile is:
+
+```bash
+freellmpool profile show metaswarm
+freellmpool profile doctor metaswarm --dry-run
+```
+
+It documents one free/cheap worker lane through the local proxy, one larger
+reviewer lane, Tailnet URL setup for remote agents, and Codex/Opus as explicit
+user-owned paid escalation/final-review tools. freellmpool does not select those
+paid lanes silently.
 
 ## aider (AI pair programming in your terminal)
 

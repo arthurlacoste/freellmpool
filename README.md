@@ -55,7 +55,9 @@ just point them at the proxy:
 ```bash
 freellmpool proxy                       # starts http://localhost:8080
 freellmpool code claude                 # prints the one-line setup for Claude Code
-# (also: codex, aider, cline, continue, cursor, opencode)
+freellmpool profile list                # richer installable profiles
+freellmpool profile show metaswarm      # Tailnet-aware Metaswarm profile
+# (also: codex, aider, cline, continue, cursor, opencode, metaswarm)
 ```
 
 Claude Code gateway mode can also be launched directly:
@@ -168,6 +170,8 @@ run on free models too. `freellmpool code <agent>` prints the exact setup:
 
 ```bash
 freellmpool code aider       # also: claude, codex, cline, continue, cursor, opencode
+freellmpool profile show opencode
+freellmpool profile doctor opencode --dry-run
 ```
 
 Endpoints: `/v1/chat/completions` (token streaming, tool calling), `/v1/embeddings`,
@@ -177,7 +181,9 @@ Endpoints: `/v1/chat/completions` (token streaming, tool calling), `/v1/embeddin
 Setup snippets for specific tools are in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)
 and [docs/AGENTS.md](docs/AGENTS.md). The repo also includes an experimental
 [metaswarm review adapter](integrations/metaswarm) for using `freellmpool` as an
-external-tools reviewer/second opinion.
+external-tools reviewer/second opinion. `freellmpool profile show metaswarm`
+documents a free/cheap worker lane, a larger reviewer lane, Tailnet client setup,
+and paid Codex/Opus lanes as explicit user-owned escalation paths only.
 
 ## As a library
 

@@ -19,6 +19,18 @@ model setting untouched — just set the base URL and any API key.
 
 ## Coding agents & editors
 
+Profiles provide the same setup snippets through the CLI:
+
+```bash
+freellmpool profile list
+freellmpool profile show opencode
+freellmpool profile install opencode
+freellmpool profile doctor opencode --dry-run
+```
+
+`freellmpool code <agent>` remains as a compatibility shortcut for the profile
+quick-start.
+
 ### opencode
 `opencode.json` (project or `~/.config/opencode/`):
 ```json
@@ -64,6 +76,18 @@ Then add it to `.metaswarm/external-tools.yaml` as a `review` /
 (`MISTRAL_API_KEY`, `NVIDIA_API_KEY`, or `OPENROUTER_API_KEY`) before enabling it;
 without those keys it fails closed with `error_type: "auth_missing"` and makes no
 provider calls. Full setup: [`integrations/metaswarm/README.md`](../integrations/metaswarm/README.md).
+
+The installable profile is:
+
+```bash
+freellmpool profile show metaswarm
+freellmpool profile install metaswarm
+freellmpool profile doctor metaswarm --dry-run
+```
+
+It includes Tailnet setup for remote agents, a free/cheap worker lane, a larger
+freellmpool reviewer lane, and Codex/Opus lanes only as explicit user-owned paid
+escalation/final-review tools.
 
 ### aider
 ```bash
