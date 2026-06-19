@@ -10,6 +10,7 @@ EXPECTED_ROLES = {
     "summarizer",
     "long-context",
     "cheap",
+    "conserve",
     "fast",
     "second-opinion",
 }
@@ -43,7 +44,7 @@ def test_get_role_unknown_returns_none():
 
 def test_format_roles_includes_key_roles():
     out = format_roles()
-    for name in ("coder", "critic", "cheap", "second-opinion"):
+    for name in ("coder", "critic", "cheap", "conserve", "second-opinion"):
         assert name in out
 
 
@@ -73,6 +74,13 @@ def test_fast_role_routing():
     fast = get_role("fast")
     assert fast is not None
     assert fast.routing == "fast"
+
+
+def test_conserve_role_uses_quota_conscious_defaults():
+    conserve = get_role("conserve")
+    assert conserve is not None
+    assert conserve.routing == "spread"
+    assert conserve.max_tokens == 512
 
 
 def test_second_opinion_is_listed_placeholder():

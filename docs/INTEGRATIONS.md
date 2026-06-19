@@ -31,6 +31,18 @@ freellmpool profile doctor opencode --dry-run
 `freellmpool code <agent>` remains as a compatibility shortcut for the profile
 quick-start.
 
+For long-running agent loops, start with quota-wise mode:
+
+```bash
+FREELLMPOOL_MODE=wise freellmpool ask --role conserve "summarize this patch"
+freellmpool quota-wise status
+```
+
+Wise mode lowers default output size, prefers spread routing, narrows broad
+fan-out to declared local quota headroom when possible, and requires `--yes`
+before expensive `tokenmax` runs in non-interactive scripts. Per-command
+`--mode normal|wise` overrides the environment.
+
 ### opencode
 `opencode.json` (project or `~/.config/opencode/`):
 ```json

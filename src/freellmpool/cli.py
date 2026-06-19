@@ -22,6 +22,18 @@ from .config import (
     split_provider_model,
 )
 from .errors import AllProvidersExhausted, NoProvidersConfigured
+from .mode import (
+    WISE_DEFAULT_MAX_TOKENS,
+    WISE_DEFAULT_ROUTING,
+    WISE_EXPENSIVE_MODEL_THRESHOLD,
+    WISE_TOKENMAX_DEFAULT_MODELS,
+    confirm_expensive_operation,
+    declared_quota_exhausted,
+    declared_targets,
+    is_wise_enabled,
+    render_quota_wise_status,
+    targets_with_declared_headroom,
+)
 from .quota import QuotaStore
 from .roles import format_roles, get_role
 from .router import Pool
@@ -75,9 +87,18 @@ def cmd_ask(args: argparse.Namespace) -> int:
         json_rule = "Respond with a single valid JSON value and nothing else — no prose, no markdown fences."
         system = f"{system}\n{json_rule}" if system else json_rule
 
+    pool = Pool.from_default_config()
+    pool_env = getattr(pool, "env", os.environ)
+    mode_settings = settings(pool_env)
+    has_routing_config = bool(pool_env.get("FREELLMPOOL_ROUTING") or mode_settings.get("routing"))
+    wise = is_wise_enabled(pool_env, override=args.mode, settings=mode_settings)
     max_tokens = args.max_tokens
     if max_tokens is None:
-        max_tokens = role.max_tokens if (role is not None and role.max_tokens is not None) else 1024
+        max_tokens = (
+            role.max_tokens
+            if (role is not None and role.max_tokens is not None)
+            else (WISE_DEFAULT_MAX_TOKENS if wise else 1024)
+        )
 
     temperature = args.temperature
     if temperature is None:
@@ -86,8 +107,31 @@ def cmd_ask(args: argparse.Namespace) -> int:
     routing = routing_override(args.routing) if args.routing is not None else None
     if args.routing is None and routing is None and role is not None and role.routing is not None:
         routing = role.routing
+    if args.routing is None and routing is None and role is None and wise:
+        routing = WISE_DEFAULT_ROUTING
+    if args.routing is None and routing is None and role is None and args.mode == "normal":
+        if not has_routing_config:
+            routing = "fair"
 
-    pool = Pool.from_default_config()
+    if wise and not args.model and not args.providers:
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        targets = pool.rank_targets(messages, routing=routing, model=model_filter, providers=provider_filter)
+        snapshot = pool.quota.snapshot()
+        if declared_quota_exhausted(targets, snapshot):
+            print(
+                "freellmpool: declared local free quota is exhausted in wise mode; "
+                "rerun with an explicit --model or --providers if you want to override.",
+                file=sys.stderr,
+            )
+            return 4
+        headroom_targets = targets_with_declared_headroom(targets, snapshot)
+        if headroom_targets:
+            target = headroom_targets[0]
+            provider_filter = [target.provider.id]
+            model_filter = target.model
     try:
         reply = pool.ask(
             prompt,
@@ -128,7 +172,7 @@ def cmd_tokenmax(args: argparse.Namespace) -> int:
     """🌈 Blast one prompt to EVERY model across EVERY provider, then (by default)
     synthesize the swarm into one answer. The genuine rainbow animation runs on a
     real terminal."""
-    from .tokenmax import RAINBOW_BANNER, RainbowThrob, fan_out, select_targets
+    from .tokenmax import HARD_CAP, RAINBOW_BANNER, RainbowThrob, fan_out, select_targets
 
     stdin = _read_stdin()
     prompt = args.prompt or ""
@@ -152,10 +196,53 @@ def cmd_tokenmax(args: argparse.Namespace) -> int:
         msgs.append({"role": "system", "content": args.system})
     msgs.append({"role": "user", "content": prompt})
 
-    picks, n_providers = select_targets(pool, msgs, args.max_models)
+    pool_env = getattr(pool, "env", os.environ)
+    mode_settings = settings(pool_env)
+    has_routing_config = bool(pool_env.get("FREELLMPOOL_ROUTING") or mode_settings.get("routing"))
+    wise = is_wise_enabled(pool_env, override=args.mode, settings=mode_settings)
+    routing_for_mode = None
+    if not has_routing_config:
+        if wise:
+            routing_for_mode = WISE_DEFAULT_ROUTING
+        elif args.mode == "normal":
+            routing_for_mode = "fair"
+    wise_has_declared_targets = False
+    if wise:
+        if routing_for_mode is None:
+            candidates, _n_providers = select_targets(pool, msgs, None)
+        else:
+            candidates, _n_providers = select_targets(pool, msgs, None, routing=routing_for_mode)
+        wise_has_declared_targets = bool(declared_targets(candidates))
+        snapshot = pool.quota.snapshot()
+        if declared_quota_exhausted(candidates, snapshot):
+            print(
+                "freellmpool: declared local free quota is exhausted in wise mode; "
+                "tokenmax will not fan out to unknown or paid fallback targets implicitly.",
+                file=sys.stderr,
+            )
+            return 4
+        headroom_targets = targets_with_declared_headroom(candidates, snapshot)
+        if headroom_targets:
+            candidates = headroom_targets
+        max_models = args.max_models
+        if max_models is None:
+            max_models = WISE_TOKENMAX_DEFAULT_MODELS
+        limit = max(1, min(HARD_CAP, int(max_models)))
+        picks = candidates[:limit]
+        n_providers = len({target.provider.id for target in picks})
+    else:
+        if routing_for_mode is None:
+            picks, n_providers = select_targets(pool, msgs, args.max_models)
+        else:
+            picks, n_providers = select_targets(pool, msgs, args.max_models, routing=routing_for_mode)
     if not picks:
         print("freellmpool: no models available to blast", file=sys.stderr)
         return 3
+    if wise:
+        if len(picks) > WISE_EXPENSIVE_MODEL_THRESHOLD:
+            label = f"tokenmax fan-out to {len(picks)} models across {n_providers} providers"
+            if not confirm_expensive_operation(label, assume_yes=args.yes):
+                return 4
 
     label = f"TOKENMAXXING {len(picks)} models across {n_providers} providers"
     with RainbowThrob(label):
@@ -185,8 +272,25 @@ def cmd_tokenmax(args: argparse.Namespace) -> int:
             f"Question: {prompt}\n\n{blob}"
         )
         try:
+            syn_model = None
+            syn_providers = None
+            if wise:
+                syn_messages = [{"role": "user", "content": syn_prompt}]
+                syn_targets = pool.rank_targets(syn_messages, routing="quality")
+                syn_headroom = targets_with_declared_headroom(syn_targets, pool.quota.snapshot())
+                if syn_headroom:
+                    syn_model = syn_headroom[0].model
+                    syn_providers = [syn_headroom[0].provider.id]
+                elif wise_has_declared_targets:
+                    print(
+                        "(synthesis skipped: declared local free quota exhausted in wise mode)",
+                        file=sys.stderr,
+                    )
+                    return 0
             syn = pool.chat(
                 [{"role": "user", "content": syn_prompt}],
+                model=syn_model,
+                providers=syn_providers,
                 routing="quality",
                 max_tokens=1024,
                 timeout=args.timeout,
@@ -305,6 +409,19 @@ def cmd_quota(args: argparse.Namespace) -> int:
     print("Today's usage (UTC):")
     for key, count in sorted(snap.items(), key=lambda kv: -kv[1]):
         print(f"  {count:>6}  {key}")
+    return 0
+
+
+def cmd_quota_wise_status(args: argparse.Namespace) -> int:
+    pool = Pool.from_default_config()
+    mode_settings = settings(pool.env)
+    print(
+        render_quota_wise_status(
+            pool.providers,
+            pool.quota.snapshot(),
+            active=is_wise_enabled(pool.env, settings=mode_settings),
+        )
+    )
     return 0
 
 
@@ -1276,6 +1393,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="routing mode override (auto uses the pool default)",
     )
     p_ask.add_argument(
+        "--mode",
+        choices=["normal", "wise"],
+        help="per-command quota mode override (default: FREELLMPOOL_MODE or config)",
+    )
+    p_ask.add_argument(
         "--json", action="store_true", help="ask for JSON output and strip code fences"
     )
     p_ask.add_argument("-v", "--verbose", action="store_true", help="report which provider served")
@@ -1304,6 +1426,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="just dump every answer; skip the synthesized verdict",
     )
+    p_tokenmax.add_argument(
+        "--mode",
+        choices=["normal", "wise"],
+        help="per-command quota mode override (default: FREELLMPOOL_MODE or config)",
+    )
+    p_tokenmax.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="confirm wise-mode fan-out prompts",
+    )
     p_tokenmax.set_defaults(func=cmd_tokenmax)
 
     p_prov = sub.add_parser("providers", help="list providers and configuration status")
@@ -1331,6 +1464,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_quota = sub.add_parser("quota", help="show today's per-provider usage")
     p_quota.set_defaults(func=cmd_quota)
+
+    p_quota_wise = sub.add_parser("quota-wise", help="inspect quota-wise mode headroom")
+    quota_wise_sub = p_quota_wise.add_subparsers(dest="quota_wise_command", required=True)
+    p_quota_wise_status = quota_wise_sub.add_parser(
+        "status", help="show local headroom and the recommended mode"
+    )
+    p_quota_wise_status.set_defaults(func=cmd_quota_wise_status)
 
     p_stats = sub.add_parser(
         "stats", help="lifetime usage totals (tokens served free, estimated cost avoided)"

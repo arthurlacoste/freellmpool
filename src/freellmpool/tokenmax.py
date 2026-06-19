@@ -80,7 +80,13 @@ class RainbowThrob:
             sys.stderr.flush()
 
 
-def select_targets(pool: Pool, messages: list[dict], max_models=None) -> tuple[list, int]:
+def select_targets(
+    pool: Pool,
+    messages: list[dict],
+    max_models=None,
+    *,
+    routing: str | None = None,
+) -> tuple[list, int]:
     """Pick which models to blast: EVERY model across EVERY provider, round-robin
     interleaved by provider (best-first within each) so the swarm spans all
     providers instead of pounding one provider's list.
@@ -89,7 +95,7 @@ def select_targets(pool: Pool, messages: list[dict], max_models=None) -> tuple[l
     default is ALL of them, capped at :data:`HARD_CAP`.
     """
     by_provider: dict[str, list] = {}
-    for t in pool.rank_targets(messages):
+    for t in pool.rank_targets(messages, routing=routing):
         by_provider.setdefault(t.provider.id, []).append(t)
     interleaved = [t for tier in itertools.zip_longest(*by_provider.values()) for t in tier if t]
     default_limit = min(len(interleaved), HARD_CAP)

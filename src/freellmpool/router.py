@@ -306,7 +306,9 @@ class Pool:
         cooldown = float(cfg.get("cooldown_seconds", 60.0))
         ttl = float(env.get("FREELLMPOOL_CACHE_TTL") or cfg.get("cache_ttl", 0) or 0)
         cache = Cache(ttl) if ttl > 0 else None
-        routing = str(env.get("FREELLMPOOL_ROUTING") or cfg.get("routing", "fair")).lower()
+        from .mode import default_routing_for_mode
+
+        routing = default_routing_for_mode(env, cfg)
         return cls(
             providers,
             quota=quota,

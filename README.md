@@ -237,6 +237,7 @@ fill. These commands tell you what's usable right now and what to set up next:
 
 ```bash
 freellmpool capacity status --target 5   # who's healthy / near quota / missing a key
+freellmpool quota-wise status            # local headroom + recommended mode
 freellmpool providers health             # send one tiny request to each, time it
 freellmpool keys checklist --target 5    # which keys to add to reach N healthy providers
 freellmpool keys add groq                # configure a key (and record metadata)
@@ -251,6 +252,13 @@ stays the source of truth for routing. `keys add <name>` can even import a
 suggested provider from that catalog or create an OpenAI-compatible stub and
 autodiscover its models. The proxy `/dashboard` shows the same capacity at a
 glance. Full reference: [docs/CAPACITY.md](docs/CAPACITY.md).
+
+`FREELLMPOOL_MODE=wise` is the conservative quota mode: `ask` defaults to a
+smaller output budget and spread routing, `tokenmax` narrows its default fan-out,
+and broad multi-model calls require confirmation unless you pass `--yes`.
+Per-command `--mode normal|wise` overrides the environment, and
+`[settings] mode = "wise"` works from `config.toml`. The `conserve` role is a
+quota-conscious shorthand for small, spread-routed answers.
 
 ## As an MCP server
 

@@ -72,6 +72,13 @@ _ROLE_SPECS: tuple[RoleSpec, ...] = (
         system_prefix="Be concise to minimize token usage.",
     ),
     RoleSpec(
+        name="conserve",
+        description="Wise-mode companion; spread routing with a small quota-conscious budget.",
+        routing="spread",
+        max_tokens=512,
+        system_prefix="Be concise and avoid unnecessary calls or long outputs.",
+    ),
+    RoleSpec(
         name="fast",
         description="Fast routing with a small token budget for quick replies.",
         routing="fast",
