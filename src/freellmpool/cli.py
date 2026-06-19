@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 from . import __version__
 from .config import (
@@ -1401,6 +1402,78 @@ def cmd_playground(args: argparse.Namespace) -> int:
     return 3
 
 
+def cmd_recipe_list(args: argparse.Namespace) -> int:
+    import json
+
+    from .recipes import list_recipes, list_recipes_json
+
+    if args.json:
+        print(json.dumps(list_recipes_json(), indent=2, sort_keys=True))
+        return 0
+    for recipe in list_recipes():
+        print(f"{recipe.name}\t{recipe.description}")
+    return 0
+
+
+def cmd_recipe_show(args: argparse.Namespace) -> int:
+    import json
+
+    from .recipes import RecipeError, get_recipe, render_recipe
+
+    try:
+        recipe = get_recipe(args.name)
+    except RecipeError as exc:
+        print(f"freellmpool recipe: {exc}", file=sys.stderr)
+        return 3
+    if args.json:
+        print(json.dumps(recipe.summary(), indent=2, sort_keys=True))
+    else:
+        print(render_recipe(recipe))
+    return 0
+
+
+def cmd_recipe_run(args: argparse.Namespace) -> int:
+    from .recipes import (
+        RecipeError,
+        collect_recipe_input,
+        get_recipe,
+        run_recipe,
+    )
+
+    try:
+        recipe = get_recipe(args.name)
+        stdin = _read_stdin()
+        input_text, path = collect_recipe_input(
+            recipe,
+            prompt=args.prompt or "",
+            stdin=stdin,
+            input_file=args.input,
+            path=args.path,
+        )
+        validation_output = args.validation_output
+        if args.validation_output_file:
+            validation_output = Path(args.validation_output_file).read_text(encoding="utf-8")
+        result = run_recipe(
+            Pool.from_default_config(),
+            recipe,
+            input_text=input_text,
+            path=path,
+            validation_output=validation_output,
+            opinions=args.opinions,
+            synthesize=args.synthesize,
+            max_tokens=args.max_tokens,
+            timeout=args.timeout,
+        )
+    except (RecipeError, NoProvidersConfigured, AllProvidersExhausted) as exc:
+        print(f"freellmpool recipe: {exc}", file=sys.stderr)
+        return 3
+    except OSError as exc:
+        print(f"freellmpool recipe: {exc}", file=sys.stderr)
+        return 3
+    print(result.output)
+    return 0
+
+
 def cmd_profile_list(args: argparse.Namespace) -> int:
     from .profiles import render_profile_list
 
@@ -1619,6 +1692,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_playground = sub.add_parser("playground", help="print the local playground URL")
     p_playground.add_argument("--port", type=int, default=8080, help="proxy port")
     p_playground.set_defaults(func=cmd_playground)
+
+    p_recipe = sub.add_parser("recipe", help="run bundled JSON workflow recipes")
+    recipe_sub = p_recipe.add_subparsers(dest="recipe_command", required=True)
+    p_recipe_list = recipe_sub.add_parser("list", help="list bundled recipes")
+    p_recipe_list.add_argument("--json", action="store_true", help="emit versioned JSON")
+    p_recipe_list.set_defaults(func=cmd_recipe_list)
+    p_recipe_show = recipe_sub.add_parser("show", help="show a bundled recipe")
+    p_recipe_show.add_argument("name", help="recipe name")
+    p_recipe_show.add_argument("--json", action="store_true", help="emit JSON")
+    p_recipe_show.set_defaults(func=cmd_recipe_show)
+    p_recipe_run = recipe_sub.add_parser("run", help="run a bundled recipe")
+    p_recipe_run.add_argument("name", help="recipe name")
+    p_recipe_run.add_argument("prompt", nargs="?", default="", help="prompt text input")
+    p_recipe_run.add_argument("--input", help="read recipe input from a file")
+    p_recipe_run.add_argument("--path", help="read files matching a path/glob for path recipes")
+    p_recipe_run.add_argument("--validation-output", help="validation output text")
+    p_recipe_run.add_argument("--validation-output-file", help="read validation output from a file")
+    p_recipe_run.add_argument("--opinions", type=int, default=3, help="panel size for panel recipes")
+    p_recipe_run.add_argument("--synthesize", action="store_true", help="append panel synthesis")
+    p_recipe_run.add_argument("--max-tokens", type=int, default=None, help="max output tokens")
+    p_recipe_run.add_argument("--timeout", type=float, default=90.0, help="upstream timeout seconds")
+    p_recipe_run.set_defaults(func=cmd_recipe_run)
 
     p_prov = sub.add_parser("providers", help="list providers and configuration status")
     prov_sub = p_prov.add_subparsers(dest="providers_command")

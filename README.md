@@ -287,6 +287,19 @@ freellmpool proxy --port 8080
 freellmpool playground --port 8080
 ```
 
+Bundled recipes wrap common workflows in JSON files you can inspect and run:
+
+```bash
+freellmpool recipe list
+freellmpool recipe run second-opinion "is this launch plan clear?" --synthesize
+freellmpool recipe run pr-review --input patch.diff
+freellmpool recipe run repo-summary --path 'src/freellmpool/*.py'
+freellmpool recipe run metaswarm-worker-review --input worker.md --validation-output-file validation.txt
+```
+
+Recipes use the same role presets and shared panel helper as `ask` and `battle`;
+there is no separate routing engine.
+
 ## As an MCP server
 
 `freellmpool mcp` runs a Model Context Protocol server over stdio, so Claude
