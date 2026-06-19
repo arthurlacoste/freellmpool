@@ -135,6 +135,274 @@ generic infrastructure. The top 10 feature ideas map to work units as follows:
 WU-011 exposes the UX through MCP. WU-012 makes the public story, docs, and
 release checks match the shipped commands.
 
+## Kimi/M3 Top-10 Planning Addendum
+
+Collaboration source: Kimi K2.7 Code and MiniMax M3 reviewed this plan on
+2026-06-19. Kimi focused on practical UX gaps, copy-pastable flows, and
+quantified acceptance criteria. M3 focused on codebase-feasible sequencing,
+cross-work-unit integration, and testable edge cases.
+
+Adopted resolutions:
+
+- Keep the approved work-unit structure. The plan already maps the top 10
+  feature ideas 1:1 to WU-001 through WU-010.
+- Do not reopen closed work units only to rewrite history. Closed WUs are
+  treated as shipped slices; the addendum guides dependent WUs, docs, and any
+  follow-up hardening.
+- Keep `second-opinion` as a role name only after WU-006 provides the panel
+  helper. WU-004 may reserve the role, but WU-006 owns fan-out behavior.
+- Keep `panel.py` focused on provider/model/latency/text/error records. Report
+  and cost-class enrichment belongs in WU-008 `RunRecord` artifacts.
+- Keep the stdlib-first constraint. None of these refinements authorizes a new
+  runtime dependency.
+
+### 1. Init Wizard
+
+Use case: a new user runs `freellmpool init` once and receives a working path
+for local CLI, OpenCode, Metaswarm, MCP, or Tailnet without reading every doc.
+
+Adopted plan additions:
+
+- `freellmpool init --yes` with no other flags is detect-only: print providers,
+  agent CLIs, Tailscale state, proxy config state, and the recommended next
+  command; write no files and exit 0.
+- Add `--json` output for the detected environment so agents can consume init
+  results without scraping prose.
+- Each offered path prints one copy-pastable command block. The Metaswarm +
+  Tailnet path must include `tailnet serve`, remote base URLs, and the profile
+  doctor command.
+- Re-running init against existing config remains idempotent. No config file is
+  changed without an explicit write/force path.
+
+Verification additions:
+
+- Empty environment plus `init --yes` exits 0, says there is nothing configured
+  yet, and writes nothing.
+- `init --yes --agent metaswarm --tailnet` prints Tailnet and Metaswarm commands
+  even when Tailscale is missing, with clear missing-step text.
+- Existing config plus a second init run performs no writes unless `--force` is
+  present.
+
+### 2. Agent Profiles, Including Metaswarm
+
+Use case: the user can run one command to see exactly how freellmpool should be
+wired into Metaswarm, OpenCode, Codex, Cline, Cursor, Claude, Aider, or Continue.
+
+Adopted plan additions:
+
+- The `metaswarm` profile must expose one free/cheap worker lane, one larger
+  reviewer lane, Codex as escalation, and Opus only as a final-review lane. Any
+  paid lane is explicitly labeled `cost_class=paid` and off by default.
+- `profile show metaswarm` must include Tailnet-aware base URL examples for a
+  second machine using the proxy over Tailscale.
+- `profile install <name>` stays print-first for third-party agent config. If a
+  write mode is added, it writes only freellmpool-owned config and lists every
+  file changed.
+- Profile records include `client_kind`, `base_url`, role map, model family,
+  cost class, snippets, and doctor checks.
+
+Verification additions:
+
+- `profile list` includes `metaswarm`.
+- `profile show metaswarm` includes worker lane, reviewer lane, Codex
+  escalation, Opus final-review-only wording, and Tailnet base URL snippets.
+- Resolver tests prove a free profile wins over a paid profile when both satisfy
+  the requested role, and explicit paid model overrides remain visible.
+
+### 3. Roles Instead Of Model IDs
+
+Use case: a user asks for intent, such as `coder`, `critic`, `cheap`, or
+`fast`, without memorizing model IDs or provider quirks.
+
+Adopted plan additions:
+
+- Publish the shipped WU-004 role-default mapping in tests and docs:
+  `coder=quality/2048`, `critic=quality/temperature 0.1`, `summarizer=spread/768`,
+  `long-context=quality/4096`, `cheap=spread/512`, `fast=fast/512`,
+  `conserve=spread/512`, and `second-opinion=reserved placeholder until WU-006
+  activates panel behavior`.
+- `--role` creates ordinary pool arguments; it does not create another routing
+  engine.
+- `--model` and `--providers` remain explicit overrides. Output provenance must
+  show that the user overrode the role defaults.
+
+Verification additions:
+
+- `freellmpool roles` is stable and easy to parse, one role per line.
+- `ask --role coder --model <model>` calls the explicit model and displays the
+  override.
+- Unknown role errors list valid roles.
+
+### 4. Battle CLI And Local Playground
+
+Use case: users compare several free model answers side by side from the CLI or
+a local page, then decide which answer is strongest.
+
+Adopted plan additions:
+
+- `battle` defaults to three models when available, runs with fewer when fewer
+  providers are configured, and caps requested model count at five.
+- `battle --synthesize` reuses the second-opinion synthesis path once WU-006
+  exists.
+- `playground --port <port>` prints the existing `/playground` URL if a proxy
+  is already reachable; it must not start nested proxy servers.
+- `/playground` is self-contained, framework-free HTML/JS with no external
+  network resources.
+- `POST /freellmpool/battle` enforces the same proxy auth as `/v1`.
+
+Verification additions:
+
+- Fewer than three fake providers warns and still renders available answers.
+- Per-model failures render inline and do not fail the whole comparison.
+- The served playground bytes contain no CDN, remote script, stylesheet, or
+  image references.
+
+### 5. Recipe Library
+
+Use case: users run useful workflows immediately: second opinion, PR review,
+repo summary, launch-copy critique, and Metaswarm worker review.
+
+Adopted plan additions:
+
+- Recipe JSON schema includes name, version, description, role, prompt template,
+  variables, input mode, and output mode.
+- CLI input modes map explicitly to prompt text, stdin, `--input <file>`, and
+  `--path <glob>`.
+- `recipe run second-opinion` calls the WU-006 panel helper; it must not
+  duplicate fan-out.
+- `metaswarm-worker-review` is concrete: input is a worker summary or patch plus
+  validation output, role is `critic`, and output is blocking findings,
+  verification gaps, and an approve/revise verdict.
+- Every bundled recipe has a copy-pastable example command.
+
+Verification additions:
+
+- `recipe list --json` has a stable versioned schema.
+- Bad recipe name and missing required input produce distinct errors.
+- Built wheel/sdist artifacts include every bundled recipe JSON file.
+
+### 6. Background Job Queue
+
+Use case: free-tier work can be slow, so users queue repo summaries, reviews, or
+reports and let freellmpool process them locally.
+
+Adopted plan additions:
+
+- Job records are append-only JSONL with `id`, `created_at`, `spec`, `status`,
+  attempt metadata, and optional tombstone/cancel records.
+- Add `jobs cancel <id>`.
+- `jobs watch` in the first foreground-only slice tails/render-refreshes the
+  local JSONL state; no daemon is implied.
+- Duplicate recipe/path submissions create distinct jobs unless an explicit
+  `--dedupe` option is added.
+- `jobs run --max-failures N` halts after N consecutive failures but preserves
+  each failure and does not corrupt unrelated queued jobs.
+
+Verification additions:
+
+- Queue replay after restart preserves cancelled status.
+- A failed job records its error and later jobs remain runnable.
+- `jobs run --dry-run` shows execution order without mutating the queue.
+
+### 7. Second-Opinion Everywhere
+
+Use case: a user or agent can ask several free models for independent answers
+from CLI, MCP, recipes, reports, and the playground.
+
+Adopted plan additions:
+
+- Panel defaults to three models, minimum two when available, and maximum five.
+- Selection prefers distinct providers and model families, but a single-family
+  configured environment still runs rather than failing.
+- Synthesis uses a prompt template owned by `panel.py`; synthesizer choice may
+  be one of the answer models, but synthesis failure is non-fatal.
+- CLI `ask --second-opinion` and MCP panel tools import the same shared helper.
+  Later WU-005, WU-007, and WU-008 consumers must use that helper rather than
+  duplicating fan-out.
+- Wise mode can warn or require confirmation before expensive fan-out; WU-010
+  owns the policy, WU-006 exposes the hook.
+
+Verification additions:
+
+- Single-family fake provider setup still returns answers.
+- MCP and CLI tests prove both call the shared panel helper.
+- Synthesis failure leaves individual answers visible in CLI output and later
+  report records.
+
+### 8. Tailnet/LAN Gateway
+
+Use case: one machine runs the freellmpool proxy and another personal machine or
+agent uses it safely over Tailnet.
+
+Adopted plan additions:
+
+- `tailnet connect` is print-only by default. If probing is added, it is behind
+  an explicit `--probe` flag.
+- `tailnet status` gets the Tailnet IPv4 from `tailscale ip -4`; MagicDNS is a
+  useful extra, not a requirement.
+- Generated session tokens are URL-safe, session-only, printed at serve
+  startup, and never persisted to config, reports, or status output.
+- Unsafe non-loopback binds continue to require explicit LAN acknowledgement and
+  auth.
+
+Verification additions:
+
+- Missing Tailscale, logged-out Tailscale, malformed output, and MagicDNS-less
+  setups produce actionable output.
+- Generated token appears once in serve output and not in `tailnet status`.
+- Refused binds return non-zero with a clear auth/allow-lan message.
+
+### 9. Shareable Reports
+
+Use case: after a battle, recipe, job, or second-opinion run, the user gets a
+Markdown or HTML artifact they can inspect, keep, or post.
+
+Adopted plan additions:
+
+- Run IDs and report paths are deterministic under the user data directory, for
+  example `reports/<run-id>.md` and `reports/<run-id>.html`.
+- `report last --html --open` uses the OS opener when available and falls back
+  to printing the path.
+- HTML reports are self-contained and escaped. Markdown reports preserve prose,
+  but HTML treats prompts, model text, errors, labels, and recipe names as
+  untrusted input.
+- `cost show <run-id>` is an explicit WU-008 report adjunct. It must fail
+  clearly when the run is missing and suggest `report list`.
+
+Verification additions:
+
+- HTML tests cover tags, quotes, script-like text, and external URL rejection.
+- Redaction covers obvious API-key and bearer-token shapes.
+- `report list` and `report last` operate from append-only run records rather
+  than a fragile mutable pointer.
+
+### 10. Use My Free Quota Wisely Mode
+
+Use case: users can say "save my scarce free quota" and see freellmpool lower
+token use, spread traffic, and refuse expensive accidental fan-out.
+
+Adopted plan additions:
+
+- Wise mode output includes a visible mode line showing routing and max-token
+  defaults unless quiet/JSON output is requested.
+- `quota-wise status` prints per-provider local headroom and exactly one
+  recommended mode/action.
+- Partial exhaustion skips exhausted free providers when alternatives remain;
+  total declared free-quota exhaustion returns a clear `QUOTA_EXHAUSTED` result
+  and never falls through to paid providers.
+- Explicit user flags such as `--routing quality`, `--model`, `--providers`,
+  and `--max-tokens` override mode defaults and are shown as overrides.
+- Expensive operations include `tokenmax`, panel/battle fan-out above the wise
+  threshold, and large job batches. Interactive runs prompt; non-interactive
+  runs fail fast unless `--yes` is present.
+
+Verification additions:
+
+- Wise mode banner appears for normal ask output and notes explicit overrides.
+- Partial exhaustion and total exhaustion are separate tests.
+- Expensive multi-model operations are guarded consistently across battle,
+  second-opinion, recipes, jobs, and MCP.
+
 ## Work Units
 
 ### WU-001: Tailnet Gateway Mode
@@ -184,7 +452,7 @@ Definition of Done:
 
 Verification:
 
-- `python3 -m pytest tests/test_tailnet.py tests/test_cli.py tests/test_proxy.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_tailnet.py tests/test_cli.py tests/test_proxy.py`
 
 ### WU-002: Init Wizard
 
@@ -236,7 +504,7 @@ Definition of Done:
 
 Verification:
 
-- `python3 -m pytest tests/test_init_wizard.py tests/test_cli.py tests/test_agents.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_init_wizard.py tests/test_cli.py tests/test_agents.py`
 
 ### WU-003: Agent Profiles and Metaswarm Profile
 
@@ -289,7 +557,7 @@ Definition of Done:
 
 Verification:
 
-- `python3 -m pytest tests/test_profiles.py tests/test_agents.py tests/test_cli.py tests/test_proxy.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_profiles.py tests/test_agents.py tests/test_cli.py tests/test_proxy.py`
 
 ### WU-004: Role-Based Asking
 
@@ -341,7 +609,7 @@ Definition of Done:
 
 Verification:
 
-- `python3 -m pytest tests/test_roles.py tests/test_cli.py tests/test_routing.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_roles.py tests/test_cli.py tests/test_routing.py`
 
 ### WU-005: Battle CLI and Local Playground
 
@@ -383,7 +651,7 @@ Definition of Done:
 
 Verification:
 
-- `python3 -m pytest tests/test_battle.py tests/test_proxy.py tests/test_cli.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_battle.py tests/test_proxy.py tests/test_cli.py`
 
 ### WU-006: Second-Opinion Everywhere
 
@@ -396,8 +664,8 @@ Files:
 - Existing: `src/freellmpool/tokenmax.py`
 - Existing: `src/freellmpool/mcp_server.py`
 - New: `src/freellmpool/panel.py`
-- New or existing from WU-004/WU-005: `src/freellmpool/roles.py`,
-  `src/freellmpool/battle.py`
+- Existing from WU-004: `src/freellmpool/roles.py`
+- Later consumer from WU-005: `src/freellmpool/battle.py`
 - New tests: `tests/test_panel.py`
 - Existing tests: `tests/test_cli.py`, `tests/test_mcp.py`
 - Docs: `README.md`, `docs/MCP.md`
@@ -436,11 +704,12 @@ Definition of Done:
   when an alternative family is available, and gracefully skips validation when
   only one family exists.
 - MCP panel tests cover the same shared helper.
-- The helper is reused by battle rather than duplicating fan-out logic.
+- WU-006 exposes a stable helper contract for later battle reuse. WU-005 owns
+  the battle integration tests.
 
 Verification:
 
-- `python3 -m pytest tests/test_panel.py tests/test_cli.py tests/test_mcp.py tests/test_battle.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_panel.py tests/test_cli.py tests/test_mcp.py`
 
 ### WU-007: Recipes
 
@@ -487,8 +756,8 @@ Definition of Done:
 
 Verification:
 
-- `python3 -m pytest tests/test_recipes.py tests/test_cli.py`
-- `python3 -m build` or existing release metadata check if package data changes.
+- `PYTHONPATH=src python3 -m pytest tests/test_recipes.py tests/test_cli.py`
+- `PYTHONPATH=src python3 -m build` or existing release metadata check if package data changes.
 
 ### WU-008: Reports
 
@@ -546,7 +815,7 @@ Definition of Done:
 
 Verification:
 
-- `python3 -m pytest tests/test_reports.py tests/test_battle.py tests/test_recipes.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_reports.py tests/test_battle.py tests/test_recipes.py`
 
 ### WU-009: Local Job Queue
 
@@ -580,7 +849,7 @@ Definition of Done:
 
 Verification:
 
-- `python3 -m pytest tests/test_jobs.py tests/test_reports.py tests/test_recipes.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_jobs.py tests/test_reports.py tests/test_recipes.py`
 
 ### WU-010: Quota-Wise Mode
 
@@ -641,7 +910,7 @@ Definition of Done:
 
 Verification:
 
-- `python3 -m pytest tests/test_mode.py tests/test_cli.py tests/test_roles.py tests/test_quota.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_mode.py tests/test_cli.py tests/test_roles.py tests/test_quota.py`
 
 ### WU-011: MCP UX Tools
 
@@ -686,8 +955,8 @@ Definition of Done:
 
 Verification:
 
-- `python3 -m pytest tests/test_mcp.py tests/test_roles.py tests/test_recipes.py tests/test_battle.py`
-- `python3 -m pytest tests/test_mcp_listings.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_mcp.py tests/test_roles.py tests/test_recipes.py tests/test_battle.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_mcp_listings.py`
 
 ### WU-012: Documentation, Demo Path, and Release Readiness
 
@@ -724,11 +993,16 @@ Definition of Done:
 - Docs link to the relevant tests/features.
 - A release check or test guards the stdlib-first contract by flagging new
   runtime dependencies unless the PR includes an explicit architecture note.
+- WU-012 resolves the full release smoke environment: the current system
+  `twine`/`pkginfo` rejects `Metadata-Version: 2.4` artifacts, so the release
+  path must either pin/update packaging tool requirements or make the script
+  create a compatible checker environment before full `twine check` is required.
 
 Verification:
 
-- `python3 -m pytest tests/test_faq.py tests/test_agents.py tests/test_cli.py`
-- `python3 scripts/check_release_ready.py`
+- `PYTHONPATH=src python3 -m pytest tests/test_faq.py tests/test_agents.py tests/test_cli.py`
+- `PYTHONPATH=src python3 scripts/check_release_ready.py --skip-build`
+- Release-only after packaging-tooling fix: `PYTHONPATH=src python3 scripts/check_release_ready.py`
 
 ## Dependency Graph
 
@@ -739,9 +1013,10 @@ Verification:
 3. WU-003 Agent Profiles can start immediately and later consume WU-001 Tailnet
    helpers.
 4. WU-004 Role-Based Asking can start immediately.
-5. WU-005 Battle/Playground depends on WU-004 only if role shortcuts are used;
-   otherwise it can start with existing quality routing.
-6. WU-006 Second-Opinion Everywhere depends on WU-004 and optionally WU-005.
+5. WU-005 Battle/Playground depends on WU-006 for the shared panel helper and
+   depends on WU-004 only if role shortcuts are used.
+6. WU-006 Second-Opinion Everywhere depends on WU-004. Its verification excludes
+   `tests/test_battle.py` until WU-005 lands.
 7. WU-007 Recipes depends on WU-004 and WU-006.
 8. WU-008 Reports depends on WU-005/WU-007 data structures, but its
    `RunRecord` core can start earlier so battle/recipe/job integrations share
