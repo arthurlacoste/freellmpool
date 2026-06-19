@@ -1290,6 +1290,54 @@ def cmd_tailnet_connect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_init(args: argparse.Namespace) -> int:
+    from .init_wizard import (
+        detect_environment,
+        interactive_choice_to_plan,
+        render_detect_only,
+        render_interactive_intro,
+        render_setup_plan,
+        report_to_json,
+    )
+
+    report = detect_environment()
+    if args.json:
+        print(report_to_json(report))
+        return 0
+
+    if not args.yes and not args.agent and not args.tailnet:
+        print(render_interactive_intro(report))
+        try:
+            choice = input("Setup path: ")
+        except EOFError:
+            choice = ""
+        plan = interactive_choice_to_plan(choice)
+        if plan is None:
+            return 0
+        agent, tailnet = plan
+        print(render_setup_plan(report, agent=agent, tailnet=tailnet, port=args.port))
+        return 0
+
+    if args.yes and not args.agent and not args.tailnet:
+        print(render_detect_only(report, port=args.port))
+        return 0
+
+    try:
+        print(
+            render_setup_plan(
+                report,
+                agent=args.agent,
+                tailnet=args.tailnet,
+                port=args.port,
+                force=args.force,
+            )
+        )
+    except ValueError as exc:
+        print(f"freellmpool: {exc}", file=sys.stderr)
+        return 3
+    return 0
+
+
 def cmd_profile_list(args: argparse.Namespace) -> int:
     from .profiles import render_profile_list
 
@@ -1699,6 +1747,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--port", type=int, default=8080, help="port the remote proxy is listening on"
     )
     p_tailnet_connect.set_defaults(func=cmd_tailnet_connect)
+
+    p_init = sub.add_parser("init", help="detect environment and print first-run setup plans")
+    p_init.add_argument("--yes", action="store_true", help="non-interactive; print a plan")
+    p_init.add_argument("--json", action="store_true", help="print machine-readable detection JSON")
+    p_init.add_argument("--agent", help="agent profile to set up, e.g. opencode or metaswarm")
+    p_init.add_argument(
+        "--tailnet",
+        action="store_true",
+        help="include Tailnet gateway commands and remote client environment",
+    )
+    p_init.add_argument("--port", type=int, default=8080, help="proxy/tailnet port")
+    p_init.add_argument(
+        "--force",
+        action="store_true",
+        help="reserved for future write modes; current init plans are print-only",
+    )
+    p_init.set_defaults(func=cmd_init)
 
     p_profile = sub.add_parser(
         "profile", help="list, show, install, and diagnose agent profiles"

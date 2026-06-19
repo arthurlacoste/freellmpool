@@ -28,6 +28,16 @@ freellmpool profile install opencode
 freellmpool profile doctor opencode --dry-run
 ```
 
+The init wizard detects provider keys, agent CLIs, proxy config, and Tailscale
+state, then prints copy-pastable setup plans without editing third-party config:
+
+```bash
+freellmpool init --yes
+freellmpool init --yes --agent opencode
+freellmpool init --yes --agent metaswarm --tailnet
+freellmpool init --json
+```
+
 `freellmpool code <agent>` remains as a compatibility shortcut for the profile
 quick-start.
 

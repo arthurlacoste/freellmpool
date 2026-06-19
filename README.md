@@ -44,6 +44,15 @@ Several providers (Pollinations, OVHcloud, and Kilo Gateway) need no API key,
 and LLM7 works without one, so the quickstart can answer without signup when a
 keyless provider is available.
 
+To inspect your local provider keys, agent CLIs, proxy config, and Tailscale
+state before wiring tools, run the print-only init wizard:
+
+```bash
+freellmpool init --yes
+freellmpool init --yes --agent opencode
+freellmpool init --yes --agent metaswarm --tailnet
+```
+
 Add keys for the other providers to unlock more models and higher limits.
 
 ## Run a coding agent on free models
