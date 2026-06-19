@@ -74,7 +74,7 @@ def metadata_errors(root: Path, *, version: str | None = None) -> list[str]:
     require(provider_phrase in readme, "README provider count mismatch")
     require(f"{counts.providers} cataloged providers" in demo, "demo SVG provider count mismatch")
     require(
-        f"{counts.enabled_chat_models} routes" in demo,
+        f"{counts.enabled_chat_models} enabled routes" in demo,
         "demo SVG enabled route count mismatch",
     )
     require(
