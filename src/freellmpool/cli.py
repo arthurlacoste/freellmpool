@@ -23,7 +23,9 @@ from .config import (
 )
 from .errors import AllProvidersExhausted, NoProvidersConfigured
 from .quota import QuotaStore
+from .roles import format_roles, get_role
 from .router import Pool
+from .routing_modes import PUBLIC_ROUTING_ALIASES, routing_override
 from .savings import format_saved
 
 
@@ -43,6 +45,15 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print("freellmpool: no prompt provided (pass text or pipe stdin)", file=sys.stderr)
         return 3
 
+    role = get_role(args.role) if args.role else None
+    if args.role and role is None:
+        print(
+            f"freellmpool: unknown role '{args.role}'\n",
+            file=sys.stderr,
+        )
+        print(format_roles(), file=sys.stderr)
+        return 2
+
     # Support `--model provider/model` as a shorthand for picking an exact
     # model on an exact provider (in addition to `--providers` + bare `--model`).
     # Common OpenAI/Anthropic names (gpt-4o-mini, ...) resolve to a free target.
@@ -58,9 +69,23 @@ def cmd_ask(args: argparse.Namespace) -> int:
             provider_filter, model_filter = prov, mdl
 
     system = args.system
+    if system is None and role is not None and role.system_prefix is not None:
+        system = role.system_prefix
     if args.json:
         json_rule = "Respond with a single valid JSON value and nothing else — no prose, no markdown fences."
         system = f"{system}\n{json_rule}" if system else json_rule
+
+    max_tokens = args.max_tokens
+    if max_tokens is None:
+        max_tokens = role.max_tokens if (role is not None and role.max_tokens is not None) else 1024
+
+    temperature = args.temperature
+    if temperature is None:
+        temperature = role.temperature if (role is not None and role.temperature is not None) else 0.0
+
+    routing = routing_override(args.routing) if args.routing is not None else None
+    if args.routing is None and routing is None and role is not None and role.routing is not None:
+        routing = role.routing
 
     pool = Pool.from_default_config()
     try:
@@ -69,9 +94,10 @@ def cmd_ask(args: argparse.Namespace) -> int:
             system=system,
             model=model_filter,
             providers=provider_filter,
-            max_tokens=args.max_tokens,
-            temperature=args.temperature,
+            max_tokens=max_tokens,
+            temperature=temperature,
             timeout=args.timeout,
+            routing=routing,
         )
     except NoProvidersConfigured as exc:
         print(f"freellmpool: {exc}", file=sys.stderr)
@@ -90,6 +116,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
             f"\n[served by {reply.provider_id}/{reply.model} · {saved}]",
             file=sys.stderr,
         )
+    return 0
+
+
+def cmd_roles(args: argparse.Namespace) -> int:
+    print(format_roles())
     return 0
 
 
@@ -865,14 +896,37 @@ def build_parser() -> argparse.ArgumentParser:
         "-m", "--model", help="model name, or provider/model (e.g. groq/llama-3.3-70b-versatile)"
     )
     p_ask.add_argument("-p", "--providers", help="comma-separated provider ids to allow")
-    p_ask.add_argument("--max-tokens", type=int, default=1024)
-    p_ask.add_argument("--temperature", type=float, default=0.0)
+    p_ask.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="max output tokens (default: 1024, or the role's default)",
+    )
+    p_ask.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="sampling temperature (default: 0.0, or the role's default)",
+    )
     p_ask.add_argument("--timeout", type=float, default=90.0, help="upstream provider timeout seconds")
+    p_ask.add_argument(
+        "-r",
+        "--role",
+        help="use a role preset (see `freellmpool roles`)",
+    )
+    p_ask.add_argument(
+        "--routing",
+        choices=PUBLIC_ROUTING_ALIASES,
+        help="routing mode override (auto uses the pool default)",
+    )
     p_ask.add_argument(
         "--json", action="store_true", help="ask for JSON output and strip code fences"
     )
     p_ask.add_argument("-v", "--verbose", action="store_true", help="report which provider served")
     p_ask.set_defaults(func=cmd_ask)
+
+    p_roles = sub.add_parser("roles", help="list available ask roles")
+    p_roles.set_defaults(func=cmd_roles)
 
     p_tokenmax = sub.add_parser(
         "tokenmax",

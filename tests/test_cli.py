@@ -65,6 +65,138 @@ def test_cli_ask_passes_timeout(monkeypatch, capsys):
     assert capsys.readouterr().out.strip() == "ok"
 
 
+def test_cli_roles_lists_role_presets(capsys):
+    from freellmpool.cli import main
+
+    assert main(["roles"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Available roles:" in out
+    assert "coder" in out
+    assert "critic" in out
+    assert "second-opinion" in out
+
+
+def test_cli_ask_role_applies_role_defaults(monkeypatch, capsys):
+    from freellmpool.cli import main
+    from freellmpool.router import Pool
+
+    captured = {}
+
+    class FakePool:
+        def ask(self, prompt, **kwargs):
+            captured.update(kwargs)
+            return Reply(text="ok", provider_id="fake", model="fake-model", raw={})
+
+    monkeypatch.setattr(Pool, "from_default_config", classmethod(lambda cls: FakePool()))
+    monkeypatch.setattr("freellmpool.cli._read_stdin", lambda: "")
+
+    assert main(["ask", "hello", "--role", "coder"]) == 0
+
+    assert captured["routing"] == "quality"
+    assert captured["max_tokens"] == 2048
+    assert "programmer" in captured["system"].lower()
+    assert capsys.readouterr().out.strip() == "ok"
+
+
+def test_cli_ask_routing_override_beats_role(monkeypatch):
+    from freellmpool.cli import main
+    from freellmpool.router import Pool
+
+    captured = {}
+
+    class FakePool:
+        def ask(self, prompt, **kwargs):
+            captured.update(kwargs)
+            return Reply(text="ok", provider_id="fake", model="fake-model", raw={})
+
+    monkeypatch.setattr(Pool, "from_default_config", classmethod(lambda cls: FakePool()))
+    monkeypatch.setattr("freellmpool.cli._read_stdin", lambda: "")
+
+    assert main(["ask", "hello", "--role", "coder", "--routing", "fast"]) == 0
+
+    assert captured["routing"] == "fast"
+
+
+def test_cli_ask_routing_auto_beats_role_with_pool_default(monkeypatch):
+    from freellmpool.cli import main
+    from freellmpool.router import Pool
+
+    captured = {}
+
+    class FakePool:
+        def ask(self, prompt, **kwargs):
+            captured.update(kwargs)
+            return Reply(text="ok", provider_id="fake", model="fake-model", raw={})
+
+    monkeypatch.setattr(Pool, "from_default_config", classmethod(lambda cls: FakePool()))
+    monkeypatch.setattr("freellmpool.cli._read_stdin", lambda: "")
+
+    assert main(["ask", "hello", "--role", "coder", "--routing", "auto"]) == 0
+
+    assert captured["routing"] is None
+
+
+def test_cli_ask_without_routing_keeps_pool_default(monkeypatch):
+    from freellmpool.cli import main
+    from freellmpool.router import Pool
+
+    captured = {}
+
+    class FakePool:
+        def ask(self, prompt, **kwargs):
+            captured.update(kwargs)
+            return Reply(text="ok", provider_id="fake", model="fake-model", raw={})
+
+    monkeypatch.setattr(Pool, "from_default_config", classmethod(lambda cls: FakePool()))
+    monkeypatch.setattr("freellmpool.cli._read_stdin", lambda: "")
+
+    assert main(["ask", "hello"]) == 0
+
+    assert captured["routing"] is None
+    assert captured["max_tokens"] == 1024
+    assert captured["temperature"] == 0.0
+
+
+def test_cli_ask_unknown_role_lists_valid_roles(monkeypatch, capsys):
+    from freellmpool.cli import main
+
+    monkeypatch.setattr("freellmpool.cli._read_stdin", lambda: "")
+
+    assert main(["ask", "hello", "--role", "missing-role"]) == 2
+
+    err = capsys.readouterr().err
+    assert "unknown role 'missing-role'" in err
+    assert "Available roles:" in err
+    assert "coder" in err
+
+
+def test_cli_ask_role_with_explicit_model_keeps_verbose_provenance(monkeypatch, capsys):
+    from freellmpool.cli import main
+    from freellmpool.router import Pool
+
+    captured = {}
+
+    class FakePool:
+        def ask(self, prompt, **kwargs):
+            captured.update(kwargs)
+            return Reply(text="ok", provider_id="alpha", model="alpha-small", raw={})
+
+    monkeypatch.setattr(Pool, "from_default_config", classmethod(lambda cls: FakePool()))
+    monkeypatch.setattr("freellmpool.cli._read_stdin", lambda: "")
+    monkeypatch.setattr(
+        "freellmpool.cli.configured_providers",
+        lambda: [SimpleNamespace(id="alpha")],
+    )
+
+    assert main(["ask", "hello", "--role", "coder", "--model", "alpha/alpha-small", "-v"]) == 0
+
+    assert captured["providers"] == ["alpha"]
+    assert captured["model"] == "alpha-small"
+    err = capsys.readouterr().err
+    assert "served by alpha/alpha-small" in err
+
+
 def test_cli_tokenmax_passes_timeout(monkeypatch):
     from freellmpool.cli import main
     from freellmpool.router import Pool

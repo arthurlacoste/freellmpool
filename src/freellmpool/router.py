@@ -596,10 +596,12 @@ class Pool:
         timeout: float = 90.0,
         tools: list | None = None,
         tool_choice=None,
+        routing: str | None = None,
     ) -> Reply:
         """Send ``prompt`` to the first provider that succeeds.
 
         ``model`` / ``providers`` optionally restrict the candidate set.
+        ``routing`` overrides the pool's default routing mode for this request.
         Raises :class:`NoProvidersConfigured` if nothing is usable, or
         :class:`AllProvidersExhausted` if every candidate failed.
         """
@@ -616,6 +618,7 @@ class Pool:
             timeout=timeout,
             tools=tools,
             tool_choice=tool_choice,
+            routing=routing,
         )
 
     def chat(
