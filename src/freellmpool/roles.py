@@ -87,7 +87,12 @@ _ROLE_SPECS: tuple[RoleSpec, ...] = (
     ),
     RoleSpec(
         name="second-opinion",
-        description="Reserved for WU-006: use `freellmpool ask --second-opinion` once available.",
+        description="Quality-routed panel of diverse models for comparison.",
+        routing="quality",
+        max_tokens=512,
+        system_prefix=(
+            "Give an independent answer. Be concise, concrete, and explicit about uncertainty."
+        ),
     ),
 )
 

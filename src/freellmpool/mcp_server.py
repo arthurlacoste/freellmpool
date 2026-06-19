@@ -25,19 +25,25 @@ Implemented on the standard library only — no MCP SDK required.
 
 from __future__ import annotations
 
-import concurrent.futures as _cf
 import json
 import sys
 import threading
 import time
 
 from .config import resolve_alias, split_provider_model
+from .panel import (
+    MAX_PANEL_COUNT,
+    clamp_max_tokens,
+    clamp_panel_count,
+    render_panel_markdown,
+    run_panel,
+)
 from .router import Pool
 from .routing_modes import routing_override
 from .tokenmax import HARD_CAP, RAINBOW_BANNER, fan_out, select_targets
 
 _DEFAULT_PROTOCOL = "2025-06-18"
-_MAX_PANEL = 5
+_MAX_PANEL = MAX_PANEL_COUNT
 
 # Returned in the `initialize` handshake (MCP's standard `instructions` field) so the
 # calling agent learns HOW to invoke these tools — chiefly: call them directly instead
@@ -97,9 +103,9 @@ TOOLS = [
         "name": "free_llm_panel",
         "description": (
             "Ask the SAME prompt to several different free models at once and get every "
-            "answer back side by side — a free 'second opinion' / ensemble. Great for "
-            "cross-checking a fact, comparing approaches, or reducing single-model bias. "
-            "Optionally have a strong model synthesize the best combined answer."
+            "answer back side by side - the agent-facing second-opinion surface. Great "
+            "for cross-checking a fact, comparing approaches, or reducing single-model "
+            "bias. Optionally have a strong model synthesize the best combined answer."
         ),
         "inputSchema": {
             "type": "object",
@@ -116,6 +122,11 @@ TOOLS = [
                 "synthesize": {
                     "type": "boolean",
                     "description": "If true, a quality-routed model synthesizes the panel into one best answer.",
+                },
+                "routing": {
+                    "type": "string",
+                    "enum": ["auto", "fast", "quality", "fair", "spread"],
+                    "description": "How to rank candidate panel models (default: quality).",
                 },
                 "max_tokens": {
                     "type": "integer",
@@ -298,60 +309,19 @@ def _tool_panel(pool: Pool, args: dict) -> dict:
     prompt = args.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         return _text("'prompt' is required", is_error=True)
-    n = _clamp_int(args.get("n"), 3, 2, _MAX_PANEL)
-    max_tokens = _max_tokens(args.get("max_tokens"), 512)
-    msgs = _messages(args.get("system"), prompt)
-    # Pick the top N candidates across DISTINCT providers for diverse opinions.
-    picks, seen = [], set()
-    for t in pool.rank_targets(msgs, routing="quality"):
-        if t.provider.id in seen:
-            continue
-        seen.add(t.provider.id)
-        picks.append(t)
-        if len(picks) >= n:
-            break
-    if not picks:
+    routing = _routing_arg(args.get("routing")) or "quality"
+    result = run_panel(
+        pool,
+        prompt=prompt.strip(),
+        system=args.get("system"),
+        n=clamp_panel_count(args.get("n")),
+        routing=routing,
+        max_tokens=clamp_max_tokens(args.get("max_tokens")),
+        synthesize=bool(args.get("synthesize")),
+    )
+    if not result.answers:
         return _text("no providers configured", is_error=True)
-
-    def ask_one(t):
-        started = time.monotonic()
-        try:
-            r = pool.chat(msgs, model=t.model, providers=[t.provider.id], max_tokens=max_tokens)
-            return (
-                f"{r.provider_id}/{r.model}",
-                r.text,
-                round((time.monotonic() - started) * 1000),
-                None,
-            )
-        except Exception as exc:  # noqa: BLE001
-            return (f"{t.provider.id}/{t.model}", None, 0, f"{type(exc).__name__}: {exc}")
-
-    with _cf.ThreadPoolExecutor(max_workers=len(picks)) as ex:
-        results = list(ex.map(ask_one, picks))
-
-    out = [f'freellmpool panel — {len(results)} free models on: "{prompt[:70]}"', ""]
-    answers = []
-    for label, text, ms, err in results:
-        if err:
-            out.append(f"### {label}  (failed)\n{err}\n")
-        else:
-            answers.append((label, text))
-            out.append(f"### {label}  ({ms}ms)\n{text}\n")
-
-    if args.get("synthesize") and answers:
-        blob = "\n\n".join(f"[{lbl}]\n{txt}" for lbl, txt in answers)
-        syn_prompt = (
-            "Below are several models' answers to the same question. Synthesize the single "
-            f"best, correct, concise answer, resolving any disagreements.\n\nQuestion: {prompt}\n\n{blob}"
-        )
-        try:
-            syn = pool.chat(
-                _messages(None, syn_prompt), routing="quality", max_tokens=max(max_tokens, 1024)
-            )
-            out.append(f"### synthesis — via {syn.provider_id}/{syn.model}\n{syn.text}")
-        except Exception as exc:  # noqa: BLE001
-            out.append(f"### synthesis (failed)\n{type(exc).__name__}: {exc}")
-    return _text("\n".join(out))
+    return _text(render_panel_markdown(result))
 
 
 def _tool_tokenmax(pool: Pool, args: dict, notify=None) -> dict:

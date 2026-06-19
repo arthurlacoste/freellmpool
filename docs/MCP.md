@@ -13,7 +13,7 @@ and it works (keyless providers). Add keys to unlock more.
 | Tool | What it does |
 |---|---|
 | `free_llm_ask` | Ask a free model (`prompt`, optional `system` / `model` / `provider` / `routing` / `max_tokens`). The reply names the serving model. |
-| `free_llm_panel` | Ask the **same** prompt to N different free models at once and compare — a free second opinion / ensemble. Optional `synthesize` merges them into one best answer. |
+| `free_llm_panel` | Ask the **same** prompt to 2-5 different free models at once and compare — the agent-facing second-opinion surface. Optional `synthesize` merges them into one best answer; synthesis failure leaves the individual answers visible. |
 | `tokenmax` | 🌈 Gloriously excessive: blast the prompt to **every** free model across **every** provider at once, then the **calling** model synthesizes them all. Emits live `notifications/progress` (`🌈 TOKENMAXXING ▸ 47/168 models…`) so hosts like Claude Code show it ticking up, and a colorful rainbow banner in the result. Tongue-in-cheek, genuinely useful for hard questions. |
 | `free_llm_route` | Explain where a prompt **would** route (estimated difficulty + ranked candidate models) **without spending a token**. |
 | `free_llm_models` | List available `provider/model` ids. |

@@ -83,7 +83,9 @@ def test_conserve_role_uses_quota_conscious_defaults():
     assert conserve.max_tokens == 512
 
 
-def test_second_opinion_is_listed_placeholder():
+def test_second_opinion_role_uses_panel_defaults():
     role = get_role("second-opinion")
     assert role is not None
-    assert role.routing is None
+    assert role.routing == "quality"
+    assert role.max_tokens == 512
+    assert role.system_prefix is not None

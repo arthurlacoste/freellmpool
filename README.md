@@ -260,6 +260,16 @@ Per-command `--mode normal|wise` overrides the environment, and
 `[settings] mode = "wise"` works from `config.toml`. The `conserve` role is a
 quota-conscious shorthand for small, spread-routed answers.
 
+For a bounded second opinion instead of a full `tokenmax` blast:
+
+```bash
+freellmpool ask --second-opinion --opinions 3 "is this implementation plan sound?"
+freellmpool ask --role second-opinion --synthesize "which release note is clearer?"
+```
+
+The shared panel asks a few diverse providers, keeps individual failures visible,
+and can append a non-fatal synthesis when you pass `--synthesize`.
+
 ## As an MCP server
 
 `freellmpool mcp` runs a Model Context Protocol server over stdio, so Claude

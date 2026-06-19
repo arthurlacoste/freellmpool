@@ -101,6 +101,95 @@ def test_tools_call_panel(providers, env, quota):
     assert text.count("###") >= 2  # one section per model asked
 
 
+def test_tools_call_panel_defaults_to_three_models(providers, env, quota):
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 18,
+            "method": "tools/call",
+            "params": {"name": "free_llm_panel", "arguments": {"prompt": "hi"}},
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert text.count("###") == 3
+
+
+def test_tools_call_panel_clamps_model_count(env, quota):
+    from freellmpool.models import Model, Provider
+
+    providers = [
+        Provider(
+            id=f"p{i}",
+            label=f"P{i}",
+            adapter="openai",
+            base_url=f"https://p{i}.test/v1",
+            auth="none",
+            models=(Model(f"mistral-{i}-7b"),),
+        )
+        for i in range(6)
+    ]
+    pool = _pool(providers, env, quota)
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 19,
+            "method": "tools/call",
+            "params": {"name": "free_llm_panel", "arguments": {"prompt": "hi", "n": 99}},
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert text.count("###") == 5
+
+
+def test_tools_call_panel_synthesis_failure_is_nonfatal(env, quota):
+    from freellmpool.models import Model, Provider
+
+    providers = [
+        Provider(
+            id="alpha",
+            label="Alpha",
+            adapter="openai",
+            base_url="https://alpha.test/v1",
+            auth="none",
+            models=(Model("llama-3.1-8b"),),
+        ),
+        Provider(
+            id="beta",
+            label="Beta",
+            adapter="openai",
+            base_url="https://beta.test/v1",
+            auth="none",
+            models=(Model("qwen3-32b"),),
+        ),
+    ]
+
+    def responder(url, headers, body):
+        if "Synthesize the single" in body["messages"][0]["content"]:
+            return 500, {"error": "synthesis down"}
+        return 200, openai_body("ok")
+
+    pool = _pool(providers, env, quota, post=make_post({"test": responder}))
+    resp = handle_message(
+        pool,
+        {
+            "jsonrpc": "2.0",
+            "id": 20,
+            "method": "tools/call",
+            "params": {
+                "name": "free_llm_panel",
+                "arguments": {"prompt": "hi", "n": 2, "synthesize": True},
+            },
+        },
+    )
+    text = resp["result"]["content"][0]["text"]
+    assert resp["result"]["isError"] is False
+    assert "synthesis (failed)" in text
+    assert text.count("###") == 3
+
+
 def test_tools_call_tokenmax(providers, env, quota):
     pool = _pool(providers, env, quota)  # all providers return "ok"
     resp = handle_message(

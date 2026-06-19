@@ -34,6 +34,7 @@ from .mode import (
     render_quota_wise_status,
     targets_with_declared_headroom,
 )
+from .panel import render_panel_markdown, run_panel
 from .quota import QuotaStore
 from .roles import format_roles, get_role
 from .router import Pool
@@ -112,6 +113,29 @@ def cmd_ask(args: argparse.Namespace) -> int:
     if args.routing is None and routing is None and role is None and args.mode == "normal":
         if not has_routing_config:
             routing = "fair"
+
+    second_opinion = bool(args.second_opinion or (role is not None and role.name == "second-opinion"))
+    if second_opinion:
+        if args.json:
+            print("freellmpool: --json is not supported with --second-opinion", file=sys.stderr)
+            return 2
+        result = run_panel(
+            pool,
+            prompt=prompt,
+            system=system,
+            n=args.opinions,
+            routing=routing or "quality",
+            model=model_filter,
+            providers=provider_filter,
+            max_tokens=max_tokens,
+            timeout=args.timeout,
+            synthesize=args.synthesize,
+        )
+        if not result.answers:
+            print("freellmpool: no providers configured", file=sys.stderr)
+            return 3
+        print(render_panel_markdown(result, title="freellmpool second opinion panel"))
+        return 0 if result.successful_answers else 4
 
     if wise and not args.model and not args.providers:
         messages = []
@@ -1396,6 +1420,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--mode",
         choices=["normal", "wise"],
         help="per-command quota mode override (default: FREELLMPOOL_MODE or config)",
+    )
+    p_ask.add_argument(
+        "--second-opinion",
+        action="store_true",
+        help="ask a small panel of diverse free models instead of one model",
+    )
+    p_ask.add_argument(
+        "--opinions",
+        type=int,
+        default=3,
+        help="number of models for --second-opinion (clamped to 2-5)",
+    )
+    p_ask.add_argument(
+        "--synthesize",
+        action="store_true",
+        help="append a quality-routed synthesis for --second-opinion",
     )
     p_ask.add_argument(
         "--json", action="store_true", help="ask for JSON output and strip code fences"

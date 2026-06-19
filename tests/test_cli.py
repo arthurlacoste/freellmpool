@@ -99,6 +99,57 @@ def test_cli_ask_role_applies_role_defaults(monkeypatch, capsys):
     assert capsys.readouterr().out.strip() == "ok"
 
 
+def test_cli_ask_second_opinion_prints_two_answers(providers, env, quota, monkeypatch, capsys):
+    from helpers import make_post
+
+    from freellmpool.cli import main
+    from freellmpool.router import Pool
+
+    pool = Pool(providers, quota=quota, env=env, post=make_post({}))
+    monkeypatch.setattr(Pool, "from_default_config", classmethod(lambda cls: pool))
+    monkeypatch.setattr("freellmpool.cli._read_stdin", lambda: "")
+
+    assert main(["ask", "compare these options", "--second-opinion", "--opinions", "2"]) == 0
+
+    out = capsys.readouterr().out
+    assert "second opinion panel" in out
+    assert out.count("###") >= 2
+
+
+def test_cli_ask_second_opinion_can_synthesize(providers, env, quota, monkeypatch, capsys):
+    from helpers import make_post
+
+    from freellmpool.cli import main
+    from freellmpool.router import Pool
+
+    pool = Pool(providers, quota=quota, env=env, post=make_post({}))
+    monkeypatch.setattr(Pool, "from_default_config", classmethod(lambda cls: pool))
+    monkeypatch.setattr("freellmpool.cli._read_stdin", lambda: "")
+
+    assert main(["ask", "compare these options", "--second-opinion", "--opinions", "2", "--synthesize"]) == 0
+
+    out = capsys.readouterr().out
+    assert "### synthesis" in out
+    assert out.count("###") >= 3
+
+
+def test_cli_second_opinion_role_uses_panel(providers, env, quota, monkeypatch, capsys):
+    from helpers import make_post
+
+    from freellmpool.cli import main
+    from freellmpool.router import Pool
+
+    pool = Pool(providers, quota=quota, env=env, post=make_post({}))
+    monkeypatch.setattr(Pool, "from_default_config", classmethod(lambda cls: pool))
+    monkeypatch.setattr("freellmpool.cli._read_stdin", lambda: "")
+
+    assert main(["ask", "compare these options", "--role", "second-opinion", "--opinions", "2"]) == 0
+
+    out = capsys.readouterr().out
+    assert "second opinion panel" in out
+    assert out.count("###") >= 2
+
+
 def test_cli_ask_routing_override_beats_role(monkeypatch):
     from freellmpool.cli import main
     from freellmpool.router import Pool
