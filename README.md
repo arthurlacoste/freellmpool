@@ -279,6 +279,14 @@ freellmpool ask --role second-opinion --synthesize "which release note is cleare
 The shared panel asks a few diverse providers, keeps individual failures visible,
 and can append a non-fatal synthesis when you pass `--synthesize`.
 
+For a side-by-side comparison you can inspect in the terminal or local browser:
+
+```bash
+freellmpool battle "which changelog entry is clearer?" --synthesize
+freellmpool proxy --port 8080
+freellmpool playground --port 8080
+```
+
 ## As an MCP server
 
 `freellmpool mcp` runs a Model Context Protocol server over stdio, so Claude

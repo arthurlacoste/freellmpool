@@ -1338,6 +1338,69 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_battle(args: argparse.Namespace) -> int:
+    from .battle import render_battle_markdown, run_battle
+
+    stdin = _read_stdin()
+    prompt = args.prompt or ""
+    if stdin:
+        prompt = f"{stdin}\n\n{prompt}".strip() if prompt else stdin
+    if not prompt.strip():
+        print("freellmpool: no prompt provided (pass text or pipe stdin)", file=sys.stderr)
+        return 3
+
+    pool = Pool.from_default_config()
+    result = run_battle(
+        pool,
+        prompt,
+        n=args.models,
+        max_tokens=args.max_tokens,
+        timeout=args.timeout,
+        routing=routing_override(args.routing) if args.routing is not None else "quality",
+        synthesize=args.synthesize,
+    )
+    if not result.answers:
+        print("freellmpool: no providers configured", file=sys.stderr)
+        return 3
+    if result.truncated:
+        print(
+            f"freellmpool: battle ran {len(result.answers)} model(s) "
+            f"after requesting {result.requested_count}",
+            file=sys.stderr,
+        )
+    provider_count = len({answer.provider_id for answer in result.answers})
+    if provider_count < 3:
+        print(
+            f"freellmpool: only {provider_count} configured provider(s) available for battle",
+            file=sys.stderr,
+        )
+    print(render_battle_markdown(result))
+    return 0 if result.successful_answers else 4
+
+
+def cmd_playground(args: argparse.Namespace) -> int:
+    import urllib.error
+    import urllib.request
+
+    base = f"http://127.0.0.1:{args.port}"
+    proxy_key = os.environ.get("FREELLMPOOL_PROXY_KEY") or settings().get("proxy_key")
+    try:
+        headers = {"Authorization": f"Bearer {proxy_key}"} if proxy_key else {}
+        req = urllib.request.Request(f"{base}/playground", headers=headers)
+        with urllib.request.urlopen(req, timeout=1.5) as resp:  # noqa: S310
+            if resp.status == 200 and "text/html" in resp.headers.get("Content-Type", ""):
+                print(f"{base}/playground")
+                return 0
+    except (OSError, urllib.error.URLError):
+        pass
+    print(
+        f"freellmpool playground: no proxy reachable on {base}. "
+        f"Start one with `freellmpool proxy --port {args.port}`, then open {base}/playground.",
+        file=sys.stderr,
+    )
+    return 3
+
+
 def cmd_profile_list(args: argparse.Namespace) -> int:
     from .profiles import render_profile_list
 
@@ -1526,6 +1589,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="confirm wise-mode fan-out prompts",
     )
     p_tokenmax.set_defaults(func=cmd_tokenmax)
+
+    p_battle = sub.add_parser("battle", help="compare a prompt across a small model panel")
+    p_battle.add_argument("prompt", nargs="?", default="", help="prompt text (stdin is appended)")
+    p_battle.add_argument(
+        "-n",
+        "--models",
+        type=int,
+        default=3,
+        help="number of models to compare (clamped to 2-5)",
+    )
+    p_battle.add_argument(
+        "--max-tokens", type=int, default=512, help="max output tokens per model"
+    )
+    p_battle.add_argument("--timeout", type=float, default=90.0, help="upstream timeout seconds")
+    p_battle.add_argument(
+        "--routing",
+        choices=PUBLIC_ROUTING_ALIASES,
+        default="quality",
+        help="routing mode for candidate selection",
+    )
+    p_battle.add_argument(
+        "--synthesize",
+        action="store_true",
+        help="append a synthesis using the shared second-opinion synthesis path",
+    )
+    p_battle.set_defaults(func=cmd_battle)
+
+    p_playground = sub.add_parser("playground", help="print the local playground URL")
+    p_playground.add_argument("--port", type=int, default=8080, help="proxy port")
+    p_playground.set_defaults(func=cmd_playground)
 
     p_prov = sub.add_parser("providers", help="list providers and configuration status")
     prov_sub = p_prov.add_subparsers(dest="providers_command")
