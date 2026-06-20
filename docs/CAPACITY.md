@@ -11,6 +11,8 @@ freellmpool capacity status --target 5
 freellmpool keys status --target 5
 freellmpool keys checklist --target 5
 freellmpool providers health
+freellmpool benchmark
+freellmpool doctor
 ```
 
 ## Provider capacity
@@ -108,6 +110,16 @@ freellmpool providers health -m llama-3.3-70b-versatile
 
 This is different from `capacity status`. `providers health` sends real test requests to each configured provider's API. `capacity status` never calls a provider, but by default it does refresh the advisory external catalog over the network (a read-only metadata fetch); pass `--no-catalog-sync` to keep it fully local.
 
+`benchmark` uses the same real-provider path but reports the timing table used
+to warm latency-aware routing. Run it before long agent sessions when you want
+`FREELLMPOOL_ROUTING=fast` to start with fresh latency information.
+
+`doctor` is a local diagnostic command. It does not call provider APIs; it checks
+version/config/quota/cache/catalog state and exits non-zero when catalog
+validation fails. If you are deliberately testing a local HTTP provider, opt in
+with `FREELLMPOOL_ALLOW_LOCAL_PROVIDERS=1` for runtime calls, but expect catalog
+validation to keep requiring HTTPS-safe provider metadata.
+
 ## Dashboard
 
 When the proxy is running, open:
@@ -124,7 +136,8 @@ The dashboard shows request counters, cache hits, estimated savings, provider us
 2. Run `freellmpool keys checklist --target 5`.
 3. Add provider keys manually.
 4. Run `freellmpool providers health`.
-5. Start the proxy and watch `/dashboard`.
+5. Optionally run `freellmpool benchmark` to seed latency-aware routing.
+6. Start the proxy and watch `/dashboard`.
 
 ## Limits
 

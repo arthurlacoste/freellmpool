@@ -202,7 +202,9 @@ FREELLMPOOL_MODE=wise freellmpool ask --role cheap "summarize this patch"
 ## As a proxy
 
 Run a local server that speaks the OpenAI API, then point any OpenAI-compatible
-tool at it:
+tool at it. On loopback, any placeholder API key works unless you configured
+`FREELLMPOOL_PROXY_KEY` or passed `--api-key`; Tailnet/LAN serving requires a
+real proxy bearer token by default.
 
 ```bash
 freellmpool proxy
@@ -233,7 +235,9 @@ curl -s http://localhost:8080/v1/audio/transcriptions \
 
 The proxy also implements the OpenAI Responses API (for the Codex CLI) and an
 experimental Anthropic Messages API path (for Claude Code), so coding agents can
-run on free models too. `freellmpool code <agent>` prints the exact setup:
+run on free models too. `freellmpool code <agent>` prints the exact setup, while
+`freellmpool profile install <agent>` prints the fuller copy-pastable profile
+without mutating third-party config:
 
 ```bash
 freellmpool code aider       # also: claude, codex, cline, continue, cursor, opencode
@@ -241,10 +245,18 @@ freellmpool profile show opencode
 freellmpool profile doctor opencode --dry-run
 ```
 
-Endpoints: `/v1/chat/completions` (token streaming, tool calling), `/v1/embeddings`,
-`/v1/audio/transcriptions` (Whisper, multipart upload), `/v1/responses`,
-`/v1/messages` (experimental Anthropic-compatible path), `/v1/models`, and a
-`/dashboard` page showing usage.
+Main proxy surfaces:
+
+- `/v1/chat/completions` — OpenAI-compatible chat, token streaming, tool calling.
+- `/v1/responses` — minimal Responses API shim for Codex-style agents.
+- `/v1/messages` — experimental Anthropic-compatible Messages path.
+- `/v1/embeddings` and `/v1/audio/transcriptions` — OpenAI-compatible embedding
+  and Whisper-style multipart transcription.
+- `/v1/models` — routing aliases plus concrete `provider/model` ids.
+- `/freellmpool/battle` and `/playground` — bounded browser/JSON model comparisons.
+- `/dashboard`, `/status`, `/healthz`, `/badge.svg` — local operations surfaces.
+
+`/playground` and the API routes are auth-protected when the proxy key is set.
 Setup snippets for specific tools are in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)
 and [docs/AGENTS.md](docs/AGENTS.md). The repo also includes an experimental
 [metaswarm review adapter](integrations/metaswarm) for using `freellmpool` as an
@@ -363,8 +375,10 @@ there is no separate routing engine.
 For slow, quota-aware work that should not block a live session, queue jobs to
 an append-only JSONL log under your config dir (override with
 `FREELLMPOOL_JOBS_PATH`). The queue is foreground-only: `jobs run` processes
-one job at a time, records started/completed/failed/cancelled events, and
-writes a Markdown report for every completed run via the WU-008 helpers.
+one job at a time and records started/completed/failed/cancelled events.
+Completed ask jobs keep their output in the job log; completed recipe jobs also
+write run records and Markdown reports via the same report helpers used by
+`freellmpool report`.
 
 ```bash
 # queue a recipe job
@@ -379,6 +393,11 @@ freellmpool jobs watch           # one-shot refresh render, no daemon
 freellmpool jobs run --dry-run   # print execution order, mutate nothing
 freellmpool jobs run --max-failures 2   # halt after N consecutive failures
 freellmpool jobs cancel <job-id> # append a cancel tombstone, not a mutation
+
+freellmpool report list
+freellmpool report last --markdown
+freellmpool report last --html --path
+freellmpool cost show <run-id>
 ```
 
 Cancellation is a new tombstone event, not a re-write of the earlier queued
@@ -389,10 +408,12 @@ the same recipe or role while a job is still pending.
 
 ## As an MCP server
 
-`freellmpool mcp` runs a Model Context Protocol server over stdio, so Claude
-Desktop, Claude Code, or Cursor can hand subtasks to free models. See
-[docs/MCP.md](docs/MCP.md). A [`server.json`](server.json) is included for the
-[MCP registry](https://registry.modelcontextprotocol.io/).
+`freellmpool mcp` runs a Model Context Protocol server over newline-delimited
+JSON-RPC stdio, so Claude Desktop, Claude Code, or Cursor can hand subtasks to
+free models. It exposes ask, panel/second-opinion, battle, recipe, roles,
+Tailnet-info, quota-wise, route-preview, models, quota, stats, and `tokenmax`
+tools. See [docs/MCP.md](docs/MCP.md). A [`server.json`](server.json) is included
+for the [MCP registry](https://registry.modelcontextprotocol.io/).
 
 ## In Simon Willison's `llm` CLI
 

@@ -25,7 +25,8 @@ freellmpool profile doctor opencode --dry-run
 ```
 
 `freellmpool code <agent>` remains a compatibility shortcut that renders the
-same profile quick-start.
+same profile quick-start. `profile install <agent>` is print-only; it does not
+edit third-party config files.
 
 ## OpenAI Python SDK / OpenAI Agents SDK
 
@@ -119,6 +120,11 @@ freellmpool profile doctor metaswarm --dry-run
   side by side.
 - `freellmpool recipe run metaswarm-worker-review --input worker.md --validation-output-file validation.txt`
   returns a structured review of a worker summary.
+- `freellmpool jobs add --recipe pr-review --input patch.diff` queues slow,
+  quota-aware review work for foreground processing with `freellmpool jobs run`.
+  Completed recipe jobs create run records you can inspect with
+  `freellmpool report list`, `freellmpool report last --markdown`, and
+  `freellmpool cost show <run-id>`.
 
 ## aider (AI pair programming in your terminal)
 

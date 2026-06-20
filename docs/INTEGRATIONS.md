@@ -7,7 +7,7 @@ once, then point your tool at it:
 ```bash
 freellmpool proxy --port 8080
 # Base URL:  http://localhost:8080/v1
-# API key:   anything   (freellmpool ignores it)
+# API key:   anything on loopback, or your proxy bearer token when auth is enabled
 # Model:     auto        (or "groq", or "groq/llama-3.3-70b-versatile")
 ```
 
@@ -27,6 +27,10 @@ freellmpool profile show opencode
 freellmpool profile install opencode
 freellmpool profile doctor opencode --dry-run
 ```
+
+`profile install` is print-only: it writes the quick-start and config snippets
+to stdout so you can inspect or paste them yourself. `profile doctor --dry-run`
+prints the checks it would perform without calling binaries or network URLs.
 
 The init wizard detects provider keys, agent CLIs, proxy config, and Tailscale
 state, then prints copy-pastable setup plans without editing third-party config:
@@ -52,6 +56,12 @@ Wise mode lowers default output size, prefers spread routing, narrows broad
 fan-out to declared local quota headroom when possible, and requires `--yes`
 before expensive `tokenmax` runs in non-interactive scripts. Per-command
 `--mode normal|wise` overrides the environment.
+
+The proxy exposes more than chat completions. Agent integrations can use
+`/v1/responses` for Codex-style clients, `/v1/messages` for the experimental
+Anthropic bridge, `/v1/models` for concrete `provider/model` ids, `/dashboard`
+for operations, `/playground` for browser-side battle runs, and
+`/freellmpool/battle` for JSON/Markdown comparison results.
 
 ### opencode
 `opencode.json` (project or `~/.config/opencode/`):
@@ -232,6 +242,8 @@ freellmpool tailnet connect <tailnet-ip> --port 8080
 ```
 
 Both commands degrade to loopback guidance when Tailscale is missing or logged out.
+When auth is enabled, `/playground` and all model API routes require the same
+proxy key as `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`.
 
 ## Roles, recipes, jobs, and reports
 
@@ -247,8 +259,12 @@ Both commands degrade to loopback guidance when Tailscale is missing or logged o
   `freellmpool recipe run repo-summary --path 'src/freellmpool/*.py'` run
   versioned JSON workflows.
 - `freellmpool jobs add --recipe ...` queues slow, quota-aware work to a local
-  foreground JSONL queue, and `freellmpool report last --html --open` renders the
-  latest run artifact.
+  foreground JSONL queue. `jobs run` is foreground-only; `jobs watch` is a
+  one-shot replay render, not a daemon.
+- Completed recipe jobs create run records and Markdown reports. Inspect them
+  with `freellmpool report list`, `freellmpool report last --markdown`,
+  `freellmpool report last --html --path`, and `freellmpool cost show <run-id>`.
+  Completed ask jobs keep output on the job event itself.
 
 Run `freellmpool recipe list` and `freellmpool jobs --help` for the full surface.
 

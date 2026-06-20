@@ -8,6 +8,10 @@ lookups) to **free** LLMs instead of spending its own context/quota.
 It needs **no extra dependencies and no API keys** — `pip install freellmpool`
 and it works (keyless providers). Add keys to unlock more.
 
+The stdio transport is newline-delimited JSON-RPC 2.0. It is not LSP-style
+`Content-Length` framing; each request and response is one JSON object per line,
+and `stdout` is reserved for the protocol.
+
 ## Tools it exposes
 
 | Tool | What it does |
@@ -83,6 +87,9 @@ Pass them through the MCP server's environment, e.g. in the config:
 - The server speaks newline-delimited JSON-RPC 2.0 over stdio (the standard MCP
   stdio transport) and is implemented on the Python standard library only.
 - `stdout` carries the protocol; freellmpool prints its banner to `stderr`.
+- Tools are meant to be invoked through the MCP client. Shelling out to
+  `freellmpool mcp` from inside an agent hides progress notifications and can
+  break the stdio protocol.
 - **Invoke the tools directly.** The `initialize` handshake returns an
   `instructions` field telling the calling agent to call these as MCP tools — **not**
   to shell out to the `freellmpool` CLI as a subprocess. Subprocessing captures the
