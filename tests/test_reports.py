@@ -188,7 +188,10 @@ def test_cost_show_uses_recorded_usage_and_local_quota_only(tmp_path, monkeypatc
     monkeypatch.setenv("FREELLMPOOL_DATA_DIR", str(tmp_path / "data"))
     quota_path = tmp_path / "quota.json"
     monkeypatch.setenv("FREELLMPOOL_QUOTA_PATH", str(quota_path))
-    QuotaStore(path=quota_path, clock=_clock).record("alpha", "alpha-small")
+    # ``cost show`` reports today's local quota counters via the default
+    # QuotaStore clock, so record quota on that same day instead of pinning this
+    # setup to the run-record fixture date.
+    QuotaStore(path=quota_path).record("alpha", "alpha-small")
     record = RunRecordStore(clock=_clock).append_new(
         kind="ask",
         title="ask",
