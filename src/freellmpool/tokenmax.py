@@ -80,7 +80,13 @@ class RainbowThrob:
             sys.stderr.flush()
 
 
-def select_targets(pool: Pool, messages: list[dict], max_models=None) -> tuple[list, int]:
+def select_targets(
+    pool: Pool,
+    messages: list[dict],
+    max_models=None,
+    *,
+    routing: str | None = None,
+) -> tuple[list, int]:
     """Pick which models to blast: EVERY model across EVERY provider, round-robin
     interleaved by provider (best-first within each) so the swarm spans all
     providers instead of pounding one provider's list.
@@ -89,7 +95,7 @@ def select_targets(pool: Pool, messages: list[dict], max_models=None) -> tuple[l
     default is ALL of them, capped at :data:`HARD_CAP`.
     """
     by_provider: dict[str, list] = {}
-    for t in pool.rank_targets(messages):
+    for t in pool.rank_targets(messages, routing=routing):
         by_provider.setdefault(t.provider.id, []).append(t)
     interleaved = [t for tier in itertools.zip_longest(*by_provider.values()) for t in tier if t]
     default_limit = min(len(interleaved), HARD_CAP)
@@ -111,6 +117,7 @@ def fan_out(
     picks: list,
     *,
     max_tokens: int,
+    timeout: float = 90.0,
     progress: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[tuple[str, str | None]], list[str]]:
     """Blast ``messages`` to every target in ``picks`` concurrently.
@@ -125,7 +132,13 @@ def fan_out(
 
     def ask_one(t):
         try:
-            r = pool.chat(messages, model=t.model, providers=[t.provider.id], max_tokens=max_tokens)
+            r = pool.chat(
+                messages,
+                model=t.model,
+                providers=[t.provider.id],
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
             out = (f"{r.provider_id}/{r.model}", r.text, None)
         except Exception as exc:  # noqa: BLE001 — one model failing must not abort the swarm
             out = (f"{t.provider.id}/{t.model}", None, f"{type(exc).__name__}: {exc}")

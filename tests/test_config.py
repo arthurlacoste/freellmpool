@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from freellmpool.config import configured_providers, known_aliases, load_catalog, resolve_alias
 
 
@@ -42,6 +44,31 @@ def test_keyless_providers_always_configured():
     assert "llm7" in ids  # key optional
     assert "pollinations" in ids  # keyless
     assert "groq" not in ids  # needs a key
+
+def test_env_example_documents_keyless_providers():
+    """Verify .env.example lists all default-enabled keyless/key-optional providers."""
+    catalog = load_catalog()
+    default_enabled_keyless_ids = {
+        p.id for p in catalog if p.keyless and any(model.enabled for model in p.models)
+    }
+    disabled_keyless_ids = {
+        p.id for p in catalog if p.keyless and not any(model.enabled for model in p.models)
+    }
+
+    env_content = (Path(__file__).parent.parent / ".env.example").read_text()
+    start = env_content.find("# Zero-setup providers")
+    end = env_content.find("# So freellmpool works")
+    zero_setup_section = env_content[start:end]
+    zero_setup_lower = zero_setup_section.lower()
+
+    for provider_id in default_enabled_keyless_ids:
+        assert provider_id.lower() in zero_setup_lower, (
+            f"Keyless provider '{provider_id}' must be documented in .env.example zero-setup section"
+        )
+    for provider_id in disabled_keyless_ids:
+        assert provider_id.lower() not in zero_setup_lower, (
+            f"Disabled keyless provider '{provider_id}' must not be documented as zero-setup"
+        )
 
 
 def test_configured_filter_by_env():

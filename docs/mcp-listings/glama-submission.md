@@ -28,13 +28,21 @@ freellmpool
 freellmpool is a local stdio MCP server that lets Claude Desktop, Claude Code,
 Cursor, and other MCP clients offload subtasks to pooled free LLM tiers. It
 works with no API keys through keyless providers, supports optional user-owned
-free-tier keys, and exposes tools for single asks, model panels, tokenmax
-fan-out, routing previews, model listing, quota status, and lifetime stats.
+free-tier keys, and exposes tools for single asks, model panels, second-opinion
+and battle comparisons, bundled recipes, role presets, Tailnet setup, quota-wise
+advice, tokenmax fan-out, routing previews, model listing, quota status, and
+lifetime stats.
 
 ## Tool names
 
 - `free_llm_ask`
 - `free_llm_panel`
+- `free_llm_second_opinion`
+- `free_llm_battle`
+- `free_llm_recipe`
+- `free_llm_roles`
+- `free_llm_tailnet_info`
+- `free_llm_quota_wise`
 - `tokenmax`
 - `free_llm_route`
 - `free_llm_models`

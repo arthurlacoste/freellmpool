@@ -17,6 +17,8 @@ Supported routes:
     POST /v1/audio/transcriptions   pooled free audio transcription (Whisper, multipart)
     POST /v1/responses              Responses API shim (Codex CLI / agents)
     POST /v1/messages               Anthropic Messages shim (Claude Code / agents)
+    GET  /playground                local comparison playground
+    POST /freellmpool/battle        bounded local model battle
     GET  /healthz                   liveness probe
 """
 
@@ -336,6 +338,15 @@ def make_handler(pool: Pool, api_key: str | None = None):
                 self.end_headers()
                 self.wfile.write(html)
                 return
+            if path == "/playground":
+                html = _playground_html().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'")
+                self.send_header("Content-Length", str(len(html)))
+                self.end_headers()
+                self.wfile.write(html)
+                return
             if path.endswith("/v1/models") or path == "/models":
                 payload = (
                     _anthropic_models_payload(pool)
@@ -359,6 +370,7 @@ def make_handler(pool: Pool, api_key: str | None = None):
             is_count = route.endswith("/v1/messages/count_tokens")
             is_messages = not is_count and (route.endswith("/v1/messages") or route == "/messages")
             is_tokenmax = route.endswith("/tokenmax") or route == "/tokenmax"
+            is_battle = route == "/freellmpool/battle"
             is_transcription = (
                 route.endswith("/v1/audio/transcriptions") or route == "/audio/transcriptions"
             )
@@ -369,6 +381,7 @@ def make_handler(pool: Pool, api_key: str | None = None):
                 or is_messages
                 or is_count
                 or is_tokenmax
+                or is_battle
                 or is_transcription
             ):
                 self._error(404, f"unknown route {self.path}", "not_found")
@@ -422,8 +435,31 @@ def make_handler(pool: Pool, api_key: str | None = None):
                 self._handle_messages(req)
             elif is_tokenmax:
                 self._handle_tokenmax(req)
+            elif is_battle:
+                self._handle_battle(req)
             else:
                 self._handle_chat(req)
+
+        def _handle_battle(self, req: dict) -> None:
+            from .battle import battle_to_dict, run_battle
+
+            prompt = req.get("prompt")
+            if not isinstance(prompt, str) or not prompt.strip():
+                self._error(400, "'prompt' is required", "invalid_request_error")
+                return
+            result = run_battle(
+                pool,
+                prompt.strip(),
+                n=req.get("n", req.get("models", 3)),
+                max_tokens=req.get("max_tokens", 512),
+                timeout=90.0,
+                routing=str(req.get("routing") or "quality"),
+                synthesize=bool(req.get("synthesize")),
+            )
+            if not result.answers:
+                self._error(503, "no providers configured", "no_providers")
+                return
+            self._send(200, battle_to_dict(result))
 
         def _handle_tokenmax(self, req: dict) -> None:
             """🌈 Fan a prompt out to EVERY model and report live progress via /status so
@@ -1083,7 +1119,7 @@ def _dashboard_html(pool) -> str:
         ("requests served", str(s.get("requests", 0))),
         ("cache hits", str(s.get("cache_hits", 0))),
         ("healthy providers", f"{capacity.healthy_count}/{capacity.target}"),
-        ("not spent (Claude Opus 4.8)", f"${saved:,.2f}"),
+        ("estimated not spent (Claude Opus 4.8)", f"${saved:,.2f}"),
     ]
     card_html = "\n".join(
         f"<div class=card><div class=big>{v}</div><div class=lbl>{k}</div></div>" for k, v in cards
@@ -1110,8 +1146,44 @@ def _dashboard_html(pool) -> str:
 {provider_rows}</table>
 {capacity_table}
 {metrics_table}
-<p class=sub style="margin-top:20px">OpenAI endpoint: <code>/v1</code> · <a href="https://github.com/0xzr/freellmpool">github.com/0xzr/freellmpool</a></p>
-</div></body></html>"""
+	<p class=sub style="margin-top:20px">OpenAI endpoint: <code>/v1</code> · <a href="https://github.com/0xzr/freellmpool">github.com/0xzr/freellmpool</a></p>
+	</div></body></html>"""
+
+
+def _playground_html() -> str:
+    """A self-contained local comparison page with no external assets."""
+    return """<!doctype html><html><head><meta charset=utf-8>
+<title>freellmpool playground</title>
+<style>
+body{font-family:ui-sans-serif,system-ui,sans-serif;margin:0;background:#10130f;color:#eeeeea}
+.wrap{max-width:980px;margin:0 auto;padding:28px 18px}
+h1{font-size:24px;margin:0 0 12px}.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+textarea{width:100%;min-height:120px;margin:12px 0;padding:12px;background:#181c17;color:#f5f5f0;border:1px solid #30362e;border-radius:6px}
+button,input{background:#e7f0d8;color:#10130f;border:0;border-radius:6px;padding:9px 12px;font-weight:650}
+input{width:70px;background:#181c17;color:#f5f5f0;border:1px solid #30362e}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:16px}
+.answer{background:#181c17;border:1px solid #30362e;border-radius:6px;padding:12px;white-space:pre-wrap}
+.meta{color:#aeb8a3;font-size:12px;margin-bottom:8px}.fail{color:#ffb4a8}
+</style></head><body><main class=wrap>
+<h1>freellmpool playground</h1>
+<div class=bar><label>models <input id=count type=number min=2 max=5 value=3></label><button id=run>Run battle</button></div>
+<textarea id=prompt placeholder="Ask a question to compare across free models"></textarea>
+<section id=out class=grid></section>
+</main><script>
+const out=document.getElementById('out');
+function card(label,text,fail){const el=document.createElement('div');el.className='answer';
+const meta=document.createElement('div');meta.className='meta';meta.textContent=label;el.appendChild(meta);
+const body=document.createElement('div');if(fail)body.className='fail';body.textContent=text||'';el.appendChild(body);return el}
+document.getElementById('run').onclick=async()=>{out.replaceChildren(card('running',''));
+const prompt=document.getElementById('prompt').value;
+const n=Number(document.getElementById('count').value)||3;
+const res=await fetch('/freellmpool/battle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,n})});
+const data=await res.json();out.replaceChildren();
+if(!res.ok){out.appendChild(card('error',data.error&&data.error.message||'request failed',true));return}
+for(const a of data.answers){out.appendChild(card(a.label,a.error||a.text,Boolean(a.error)))}
+if(data.synthesis&&data.synthesis.text){out.appendChild(card('synthesis',data.synthesis.text,false))}
+};
+</script></body></html>"""
 
 
 def _chunk_block(cid: str, model_id: str, *, role=None, content=None, finish=None) -> str:

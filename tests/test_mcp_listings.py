@@ -7,16 +7,23 @@ from freellmpool import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 
-REGISTRIES = ("Smithery", "Glama", "MCP.so", "PulseMCP")
+REGISTRIES = ("Official MCP Registry", "Smithery", "Glama", "MCP.so", "PulseMCP")
 LISTING_FILES = (
     "smithery.md",
     "glama-submission.md",
     "mcp-so-issue.md",
     "pulsemcp-submission.md",
 )
+# Tools actually exposed by the MCP server. Listings must mention exactly these.
 MCP_TOOLS = (
     "free_llm_ask",
     "free_llm_panel",
+    "free_llm_second_opinion",
+    "free_llm_battle",
+    "free_llm_recipe",
+    "free_llm_roles",
+    "free_llm_tailnet_info",
+    "free_llm_quota_wise",
     "tokenmax",
     "free_llm_route",
     "free_llm_models",
@@ -36,8 +43,20 @@ def test_server_json_is_registry_ready_for_stdio_package():
         "url": "https://github.com/0xzr/freellmpool",
         "source": "github",
     }
-    assert "18 LLM providers" in server["description"]
+    assert "19 LLM providers" in server["description"]
     assert "tokenmax" in server["description"]
+    # WU-011: registry description surfaces the new UX tools too.
+    for new_tool in (
+        "second-opinion",
+        "battle",
+        "recipe",
+        "roles",
+        "tailnet",
+        "quota-wise",
+    ):
+        assert new_tool in server["description"].lower(), (
+            f"server.json description should mention {new_tool}"
+        )
     assert package["registryType"] == "pypi"
     assert package["identifier"] == "freellmpool"
     assert package["version"] == __version__
@@ -46,11 +65,12 @@ def test_server_json_is_registry_ready_for_stdio_package():
     assert package["packageArguments"] == [{"type": "positional", "value": "mcp"}]
 
 
-def test_mcp_listing_handoff_covers_each_registry_and_action():
+def test_mcp_listing_status_covers_each_registry_and_action():
     doc = (ROOT / "docs/MCP_LISTINGS.md").read_text(encoding="utf-8")
 
-    assert "Do not submit" in doc
-    assert "No external submissions were performed" in doc
+    assert "official MCP Registry publish" in doc
+    assert "MCP.so issue" in doc
+    assert "remaining directories require the operator" in doc
     for registry in REGISTRIES:
         assert registry in doc
     for filename in LISTING_FILES:

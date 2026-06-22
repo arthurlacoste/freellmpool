@@ -1,63 +1,37 @@
 # GitHub Discovery Checklist
 
-This is the local P9 handoff. It records the read-only audit and the exact
-GitHub metadata changes for the operator to apply after this branch is reviewed.
-Do not run these write commands during the polish pass.
+This records the current GitHub metadata status and the remaining UI-only
+promotion actions.
 
-## Read-only audit
+## Metadata audit
 
-Repository inspected on 2026-06-11 with:
+Repository metadata verified on 2026-06-17 with:
 
 ```bash
-gh repo view 0xzr/freellmpool --json description,repositoryTopics,url,isPrivate
+gh repo view 0xzr/freellmpool --json description,repositoryTopics,openGraphImageUrl,stargazerCount,url
 ```
 
-Current About description:
+Current About description (115 chars):
 
-> Pool the free tiers of 18 LLM providers (Groq, Cerebras, NVIDIA NIM, Gemini, OpenRouter, Cloudflare, Hugging Face...) behind one OpenAI-compatible /v1 endpoint. Free, zero-config, automatic failover. Codex/agent ready.
+> Free LLM API pool: 19 LLM providers cataloged, 235 routes, 355 cataloged chat models, keyless start when available.
 
-Current topics are already at GitHub's 20-topic limit:
-
-`ai`, `failover`, `free-llm`, `gateway`, `gemini`, `groq`, `llm`,
-`llm-api`, `llm-gateway`, `llm-router`, `openai`, `openai-api`,
-`openai-proxy`, `openrouter`, `python`, `codex`, `free-llm-api`, `mcp`,
-`mcp-server`, `model-context-protocol`.
-
-P9 gap topics missing from the live repo:
-
-`anthropic`, `claude`, `cursor`, `speech-to-text`, `rate-limiting`.
-
-## Recommended metadata
-
-Recommended description (107 chars):
-
-> Free LLM API pool: 18 LLM providers, 200+ live models, 300+ cataloged models, zero keys to start, failover.
-
-Recommended 20-topic set:
+Current 20-topic set:
 
 `anthropic`, `claude`, `codex`, `cursor`, `failover`, `free-llm`,
 `free-llm-api`, `gemini`, `groq`, `llm-gateway`, `llm-router`, `mcp`,
 `mcp-server`, `model-context-protocol`, `openai`, `openai-proxy`,
 `openrouter`, `python`, `rate-limiting`, `speech-to-text`.
 
-This removes the lower-signal duplicate topics `ai`, `gateway`, `llm`,
-`llm-api`, and `openai-api` to make room for the five P9 discovery gaps.
+The previous P9 gap topics are now present: `anthropic`, `claude`, `cursor`,
+`speech-to-text`, and `rate-limiting`.
 
-Operator command after merge:
+## Applied metadata
+
+The topic and description refreshes have been applied. Description command used:
 
 ```bash
 gh repo edit 0xzr/freellmpool \
-  --description "Free LLM API pool: 18 LLM providers, 200+ live models, 300+ cataloged models, zero keys to start, failover." \
-  --remove-topic ai \
-  --remove-topic gateway \
-  --remove-topic llm \
-  --remove-topic llm-api \
-  --remove-topic openai-api \
-  --add-topic anthropic \
-  --add-topic claude \
-  --add-topic cursor \
-  --add-topic speech-to-text \
-  --add-topic rate-limiting
+  --description "Free LLM API pool: 19 LLM providers cataloged, 235 routes, 355 cataloged chat models, keyless start when available."
 ```
 
 ## Social preview
@@ -72,7 +46,11 @@ GitHub's social preview docs recommend PNG, JPG, or GIF under 1 MB, ideally
 
 https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview
 
-Operator steps after merge:
+Custom social preview upload is still manual UI-only. `gh repo view` returns a
+GitHub-generated `openGraphImageUrl`, which is not proof that the custom asset has
+been uploaded.
+
+Operator steps before launch:
 
 1. Open `0xzr/freellmpool` on GitHub.
 2. Go to Settings, then Social preview.
@@ -81,6 +59,5 @@ Operator steps after merge:
 ## Profile pin
 
 Pin `0xzr/freellmpool` on the owner profile through GitHub's profile
-customization UI. This cannot be represented as a repository patch or PR.
-
-No external writes were performed while preparing this checklist.
+customization UI. The operator reported this done on 2026-06-17; recheck
+manually before launch because it cannot be verified from repository files.

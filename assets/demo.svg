@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="960" height="540" role="img" aria-labelledby="title desc">
   <title id="title">freellmpool tokenmax terminal demo</title>
-  <desc id="desc">A looping terminal demo showing freellmpool tokenmax fan out to free models, then synthesize the result.</desc>
+  <desc id="desc">A looping terminal demo showing freellmpool tokenmax fan out to free models and print their answers.</desc>
   <defs>
     <style>
       :root { --animation-duration: 8500ms; }
@@ -39,7 +39,7 @@
 
   <g transform="translate(58 108)">
     <text class="text line l1" x="0" y="0"><tspan class="prompt">$</tspan> pip install freellmpool</text>
-    <text class="text line l2" x="0" y="42"><tspan class="green">Successfully installed freellmpool-0.11.3</tspan> <tspan class="dim">(httpx only)</tspan></text>
+    <text class="text line l2" x="0" y="42"><tspan class="green">Successfully installed freellmpool-0.11.4</tspan> <tspan class="dim">(httpx only)</tspan></text>
     <text class="text line l3" x="0" y="84"><tspan class="prompt">$</tspan> freellmpool tokenmax "name this free LLM gateway" --max-models 6</text>
     <text class="text line l4" x="0" y="126"><tspan class="pink">TOKENMAXXING</tspan> <tspan class="yellow">6/6</tspan> models across <tspan class="cyan">4 providers</tspan></text>
     <text class="text line l5" x="0" y="168"><tspan class="cyan">pollinations/openai</tspan>       "freellmpool"</text>
@@ -47,7 +47,8 @@
     <text class="text line l6" x="0" y="236"><tspan class="yellow">kilo/openrouter/free</tspan>      "ZeroKey"</text>
     <text class="text line l6" x="0" y="270"><tspan class="green">llm7/qwen3-235b</tspan>           "PoolPilot"</text>
     <text class="text line l7" x="0" y="326"><tspan class="pink">SYNTHESIS</tspan> freellmpool: one local API over the free tiers.</text>
-    <text class="text line l8" x="0" y="382"><tspan class="green">freellmpool catalog:</tspan> 18 providers, 236 models - 18 free tiers - $0 to start</text>
+    <text class="text line l8" x="0" y="348"><tspan class="green">freellmpool catalog:</tspan> 19 cataloged providers, 235 enabled routes</text>
+    <text class="text line l8" x="0" y="382">keyless start when available; add free keys for more capacity</text>
     <rect class="cursor" x="0" y="404" width="10" height="22" fill="#eef4ff"/>
   </g>
 </svg>

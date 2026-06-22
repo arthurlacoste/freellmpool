@@ -18,14 +18,15 @@ from catalog_counts import catalog_counts  # noqa: E402
 
 REQUIRED_SURFACES = (
     ("README.md", "{providers} LLM providers"),
-    ("README.md", "{live_bucket} live-validated"),
-    ("README.md", "{cataloged_bucket} cataloged"),
+    ("README.md", "{enabled_chat_models} enabled chat routes"),
+    ("README.md", "{cataloged_chat_models} cataloged"),
     ("pyproject.toml", "{providers} LLM providers"),
-    ("pyproject.toml", "{cataloged_bucket} cataloged"),
+    ("pyproject.toml", "{enabled_chat_models} routes"),
+    ("pyproject.toml", "{cataloged_chat_models} cataloged"),
     ("server.json", "{providers} LLM providers"),
-    ("docs/index.html", "{providers} LLM providers"),
-    ("docs/index.html", "{live_bucket} live-validated"),
-    ("docs/index.html", "{cataloged_bucket} cataloged"),
+    ("docs/index.html", "{providers} cataloged LLM providers"),
+    ("docs/index.html", "{enabled_chat_models} enabled chat routes"),
+    ("docs/index.html", "{cataloged_chat_models} cataloged"),
     ("docs/free-llm-api-providers-list.html", "These {providers} providers"),
     ("docs/run-coding-agents-on-free-models.html", "pools {providers} free providers"),
     ("docs/run-opencode-on-free-models.html", "pools {providers} free providers"),
@@ -48,6 +49,8 @@ def _format(template: str, counts) -> str:
         providers=counts.providers,
         live_bucket=counts.live_bucket,
         cataloged_bucket=counts.cataloged_bucket,
+        enabled_chat_models=counts.enabled_chat_models,
+        cataloged_chat_models=counts.cataloged_chat_models,
     )
 
 
@@ -93,8 +96,8 @@ def _check_public_drift(root: Path, counts) -> list[str]:
     errors: list[str] = []
     docs = [root / "README.md", root / "FAQ.md", *sorted((root / "docs").glob("**/*"))]
     provider_claim = re.compile(r"\b(?P<n>\d+)\s+(?:LLM\s+)?(?:free\s+)?providers\b")
-    live_claim = re.compile(r"\b(?P<n>\d+\+)\s+live-validated\b")
-    cataloged_claim = re.compile(r"\b(?P<n>\d+\+)\s+cataloged\b")
+    enabled_route_claim = re.compile(r"\b(?P<n>\d+)\s+enabled\s+chat\s+routes\b")
+    cataloged_claim = re.compile(r"\b(?P<n>\d+)\s+cataloged\s+(?:chat\s+)?models\b")
     for path in docs:
         if path.name == "POLISH_PLAN.md" or not path.is_file() or path.suffix not in {".md", ".html"}:
             continue
@@ -106,11 +109,11 @@ def _check_public_drift(root: Path, counts) -> list[str]:
             for match in provider_claim.finditer(line):
                 if int(match.group("n")) != counts.providers:
                     errors.append(f"{rel}:{lineno}: provider count drift: {line.strip()}")
-            for match in live_claim.finditer(line):
-                if match.group("n") != counts.live_bucket:
-                    errors.append(f"{rel}:{lineno}: live model bucket drift: {line.strip()}")
+            for match in enabled_route_claim.finditer(line):
+                if int(match.group("n")) != counts.enabled_chat_models:
+                    errors.append(f"{rel}:{lineno}: enabled route bucket drift: {line.strip()}")
             for match in cataloged_claim.finditer(line):
-                if match.group("n") != counts.cataloged_bucket:
+                if int(match.group("n")) != counts.cataloged_chat_models:
                     errors.append(f"{rel}:{lineno}: cataloged model bucket drift: {line.strip()}")
     return errors
 
@@ -160,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "Count check passed: "
         f"{counts.providers} providers, "
-        f"{counts.enabled_chat_models} enabled chat models ({counts.live_bucket}), "
+        f"{counts.enabled_chat_models} enabled chat routes ({counts.live_bucket}), "
         f"{counts.cataloged_chat_models} cataloged chat models ({counts.cataloged_bucket})."
     )
     return 0

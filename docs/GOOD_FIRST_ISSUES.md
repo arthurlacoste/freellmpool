@@ -22,7 +22,7 @@ Do not run these commands during the polish pass. They create public GitHub
 issues.
 
 ```bash
-gh issue create --repo 0xzr/freellmpool --title "Keep .env.example keyless provider notes in sync" --label "good first issue" --label docs --label provider-catalog --body-file docs/good-first-issues/env-keyless-providers.md
+gh issue create --repo 0xzr/freellmpool --title "Keep .env.example default keyless provider notes in sync" --label "good first issue" --label docs --label provider-catalog --body-file docs/good-first-issues/env-keyless-providers.md
 
 gh issue create --repo 0xzr/freellmpool --title "Add JSON output to freellmpool models" --label "good first issue" --label cli --label tests --body-file docs/good-first-issues/models-json-output.md
 

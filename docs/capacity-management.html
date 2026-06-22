@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Know which free LLM API tiers are usable right now (capacity &amp; health)</title>
-<meta name="description" content="See which free LLM provider tiers are usable right now with freellmpool: capacity status (healthy / near-quota / missing key), live provider health checks, a key-setup checklist, and external-catalog discovery. Free, open-source, keyless to start.">
+<meta name="description" content="See which free LLM provider tiers are usable right now with freellmpool: capacity status (healthy / near-quota / missing key), live provider health checks, a key-setup checklist, and external-catalog discovery. Free, open-source, keyless when routes are available.">
 <link rel="canonical" href="https://0xzr.github.io/freellmpool/capacity-management.html">
 <meta property="og:title" content="Know which free LLM tiers are usable right now — capacity & health">
 <meta property="og:description" content="freellmpool's capacity tools show which free LLM tiers are healthy, near quota, or missing a key, live-probe providers, and help you add more.">
@@ -31,7 +31,9 @@
  .meta{color:var(--mut);font-size:13px;margin-top:34px;border-top:1px solid var(--bd);padding-top:14px}
 </style>
 <meta property="og:url" content="https://0xzr.github.io/freellmpool/capacity-management.html">
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="summary_large_image">
+<meta property="og:image" content="https://0xzr.github.io/freellmpool/assets/social-preview.png">
+<meta name="twitter:image" content="https://0xzr.github.io/freellmpool/assets/social-preview.png">
 </head>
 <body>
 <div class="wrap">
@@ -43,7 +45,7 @@
 daily caps fill up. <a href="https://github.com/0xzr/freellmpool">freellmpool</a> ships capacity tools
 that tell you, locally, which of your free providers are usable <em>right now</em>, which are near their
 quota, and which keys to add next.</strong> freellmpool is a free, open-source tool that pools the free
-tiers of 18 LLM providers behind one OpenAI-compatible endpoint; these commands keep that pool healthy.</p>
+tiers of 19 LLM providers behind one OpenAI-compatible endpoint; these commands keep that pool healthy.</p>
 
 <pre><code>pip install freellmpool
 freellmpool capacity status --target 5</code></pre>

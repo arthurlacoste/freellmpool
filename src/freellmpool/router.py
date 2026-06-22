@@ -175,9 +175,9 @@ class Pool:
         # provider_id -> monotonic time until which to deprioritize after a 429
         self._cooldown_until: dict[str, float] = {}
         self._cooldown_lock = threading.Lock()
-        # cumulative usage for the "$ saved vs OpenAI" metric. `self.stats` is the
+        # cumulative usage for the estimated-cost metric. `self.stats` is the
         # in-memory session counter; `_stats_store` (optional) persists lifetime
-        # totals across restarts so the served-free / avoided-cost number grows.
+        # totals across restarts so the served-free / estimated-cost number grows.
         self.stats = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "cache_hits": 0}
         self._stats_store = stats_store
         self._stats_lock = threading.Lock()  # the proxy serves requests on many threads
@@ -306,7 +306,9 @@ class Pool:
         cooldown = float(cfg.get("cooldown_seconds", 60.0))
         ttl = float(env.get("FREELLMPOOL_CACHE_TTL") or cfg.get("cache_ttl", 0) or 0)
         cache = Cache(ttl) if ttl > 0 else None
-        routing = str(env.get("FREELLMPOOL_ROUTING") or cfg.get("routing", "fair")).lower()
+        from .mode import default_routing_for_mode
+
+        routing = default_routing_for_mode(env, cfg)
         return cls(
             providers,
             quota=quota,
@@ -596,10 +598,12 @@ class Pool:
         timeout: float = 90.0,
         tools: list | None = None,
         tool_choice=None,
+        routing: str | None = None,
     ) -> Reply:
         """Send ``prompt`` to the first provider that succeeds.
 
         ``model`` / ``providers`` optionally restrict the candidate set.
+        ``routing`` overrides the pool's default routing mode for this request.
         Raises :class:`NoProvidersConfigured` if nothing is usable, or
         :class:`AllProvidersExhausted` if every candidate failed.
         """
@@ -616,6 +620,7 @@ class Pool:
             timeout=timeout,
             tools=tools,
             tool_choice=tool_choice,
+            routing=routing,
         )
 
     def chat(

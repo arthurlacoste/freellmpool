@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llm-freellmpool"
-version = "0.1.0"
+version = "0.1.1"
 description = "Use free LLMs in Simon Willison's llm CLI via freellmpool — pool 18 free providers, works with zero API keys."
 readme = "README.md"
 license = "MIT"
@@ -17,12 +17,12 @@ classifiers = [
 ]
 dependencies = [
     "llm",
-    "freellmpool>=0.5",
+    "freellmpool>=0.11.3",
 ]
 
 [project.urls]
 Homepage = "https://github.com/0xzr/freellmpool"
-Repository = "https://github.com/0xzr/freellmpool"
+Repository = "https://github.com/0xzr/llm-freellmpool"
 
 [project.entry-points.llm]
 freellmpool = "llm_freellmpool"

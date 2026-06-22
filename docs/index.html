@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>freellmpool — free OpenAI-compatible LLM API gateway (pool 18 free tiers, no key)</title>
-<meta name="description" content="freellmpool pools the free tiers of 18 LLM providers (Groq, Cerebras, NVIDIA, Gemini, OpenRouter, Cloudflare, Mistral, Cohere and more) behind one OpenAI-compatible endpoint. Free, open-source, pip-installable; works with no API key. CLI, Python library, local proxy, and MCP server with automatic failover.">
+<title>freellmpool — keyless-capable OpenAI-compatible LLM API gateway</title>
+<meta name="description" content="freellmpool pools the free tiers of 19 cataloged LLM providers (Groq, Cerebras, NVIDIA, Gemini, OpenRouter, Cloudflare, Mistral, Cohere and more) behind one OpenAI-compatible endpoint. Free, open-source, pip-installable; keyless start when routes are available. CLI, Python library, local proxy, and MCP server with automatic failover.">
 <link rel="canonical" href="https://0xzr.github.io/freellmpool/">
-<meta property="og:title" content="freellmpool — free OpenAI-compatible LLM API gateway">
-<meta property="og:description" content="Pool the free tiers of 18 LLM providers behind one OpenAI-compatible endpoint. Free, open-source, keyless to start.">
+<meta property="og:title" content="freellmpool — keyless-capable OpenAI-compatible LLM API gateway">
+<meta property="og:description" content="Pool the free tiers of 19 cataloged LLM providers behind one OpenAI-compatible endpoint. Free, open-source, keyless start when routes are available.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://0xzr.github.io/freellmpool/">
 <style>
@@ -33,25 +33,27 @@
  .meta{color:var(--mut);font-size:13px;margin-top:34px;border-top:1px solid var(--bd);padding-top:14px}
  ul{padding-left:20px}
 </style>
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="summary_large_image">
+<meta property="og:image" content="https://0xzr.github.io/freellmpool/assets/social-preview.png">
+<meta name="twitter:image" content="https://0xzr.github.io/freellmpool/assets/social-preview.png">
 </head>
 <body>
 <div class="wrap">
 
 <h1>freellmpool</h1>
-<p class="tag">A free, open-source, OpenAI-compatible gateway that pools the free tiers of 18 LLM providers.</p>
+<p class="tag">A free, open-source, OpenAI-compatible gateway that pools the free tiers of 19 cataloged LLM providers.</p>
 
-<p class="lead"><strong>freellmpool is a free, open-source Python tool that pools the free tiers of 18 LLM
+<p class="lead"><strong>freellmpool is a free, open-source Python tool that pools the free tiers of 19 LLM
 providers — Groq, Cerebras, NVIDIA, Google Gemini, OpenRouter, Cloudflare, Mistral, Cohere and more —
 behind one OpenAI-compatible endpoint.</strong> It runs as a command-line tool, a Python library, a
 local proxy, and an <a href="https://modelcontextprotocol.io">MCP</a> server, with automatic failover
 when a provider is rate-limited and per-day quota tracking across tiers. Several providers (Pollinations,
-OVHcloud, and Kilo Gateway) need no API key, so <code>pip install freellmpool</code> answers immediately — no signup.
-The proxy speaks both the OpenAI and the Anthropic API, so existing apps and coding agents such as
-Codex, Claude Code, and aider run on pooled free models with no code changes.</p>
+OVHcloud, and Kilo Gateway) need no API key, and LLM7 works without one, so <code>pip install freellmpool</code> can answer without signup when a keyless provider is up.
+The proxy speaks the OpenAI API and includes an experimental Anthropic-compatible path, so existing apps
+and coding agents such as Codex, Claude Code, and aider can run on pooled free models.</p>
 
 <pre><code>pip install freellmpool
-freellmpool ask "Explain the CAP theorem in one sentence."   # no API key needed</code></pre>
+freellmpool ask "Explain the CAP theorem in one sentence."   # keyless when routes are available</code></pre>
 
 <p class="badges">
 <a href="https://github.com/0xzr/freellmpool">GitHub</a> ·
@@ -74,8 +76,9 @@ tiers — not a server you deploy and not a paid aggregator.</p>
 <h2>What you can do with it</h2>
 <ul>
 <li><strong>Use free LLMs from the command line:</strong> <code>freellmpool ask "..."</code>, pipe stdin, pin a provider/model.</li>
-<li><strong>Drop-in OpenAI replacement:</strong> point <code>OPENAI_BASE_URL</code> at <code>freellmpool proxy</code>; existing code is unchanged.</li>
-<li><strong>Run coding agents for free:</strong> <code>freellmpool code claude</code> (also codex, aider, cline, continue, cursor) routes them to pooled free models — see the <a href="run-coding-agents-on-free-models.html">step-by-step guide</a>.</li>
+<li><strong>OpenAI-compatible proxy:</strong> point <code>OPENAI_BASE_URL</code> at <code>freellmpool proxy</code> for most text, embedding, and transcription calls.</li>
+<li><strong>Run coding agents for free:</strong> <code>freellmpool code claude</code> (also codex, aider, cline, continue, cursor, opencode) routes them to pooled free models — see the <a href="run-coding-agents-on-free-models.html">step-by-step guide</a>.</li>
+<li><strong>Add model-pool review to metaswarm:</strong> use the experimental <a href="https://github.com/0xzr/freellmpool/tree/main/integrations/metaswarm">metaswarm adapter</a> as a review-only external tool.</li>
 <li><strong>Async + library:</strong> <code>from freellmpool import Pool, AsyncPool</code>.</li>
 <li><strong>MCP server:</strong> <code>freellmpool mcp</code> lets Claude Desktop/Code/Cursor offload subtasks to free models.</li>
 <li><strong>Pick the fastest tier:</strong> <code>freellmpool benchmark</code> + latency-aware routing.</li>
@@ -90,7 +93,8 @@ tiers — not a server you deploy and not a paid aggregator.</p>
 <li><a href="free-claude-api.html">Free Claude API — run Claude Code on free models</a></li>
 <li><a href="free-alternative-to-openrouter.html">A free alternative to OpenRouter</a></li>
 <li><a href="use-multiple-free-llm-apis.html">How to use multiple free LLM APIs together</a></li>
-<li><a href="run-coding-agents-on-free-models.html">Run Claude Code, Codex, or Aider on free models</a></li>
+<li><a href="run-coding-agents-on-free-models.html">Run Claude Code, Codex, Aider, or OpenCode on free models</a></li>
+<li><a href="run-opencode-on-free-models.html">Run OpenCode on free LLM models with freellmpool</a></li>
 <li><a href="capacity-management.html">Know which free LLM tiers are usable right now (capacity &amp; health)</a></li>
 <li><a href="free-llm-api-providers-list.html">Free LLM API providers list (2026) — tiers &amp; limits</a></li>
 </ul>
@@ -106,7 +110,7 @@ tiers — not a server you deploy and not a paid aggregator.</p>
 
 <h3>Is there a free, OpenAI-compatible LLM API gateway?</h3>
 <p>Yes — freellmpool is a free, open-source, MIT-licensed gateway that exposes one OpenAI-compatible
-endpoint backed by the free tiers of 18 providers. Install it with <code>pip install freellmpool</code>
+endpoint backed by the free tiers of 19 cataloged providers. Install it with <code>pip install freellmpool</code>
 and point any OpenAI client at the local proxy.</p>
 
 <h3>How do I use multiple free LLM APIs at once?</h3>
@@ -116,20 +120,22 @@ evenly across the free tiers, and an optional <code>fast</code> routing mode pre
 lowest-latency provider.</p>
 
 <h3>Can I run Claude Code or Codex on free models?</h3>
-<p>Yes. The proxy implements both the OpenAI and the Anthropic APIs, so you set
-<code>OPENAI_BASE_URL</code> or <code>ANTHROPIC_BASE_URL</code> to the local proxy and run Codex,
-Claude Code, aider, Cline, Continue, or Cursor on pooled free models without changing any code.
+<p>Yes. The proxy implements the OpenAI API and an experimental Anthropic-compatible path, so you set
+<code>OPENAI_BASE_URL=http://localhost:8080/v1</code> or <code>ANTHROPIC_BASE_URL=http://localhost:8080</code> and run Codex,
+Claude Code, aider, Cline, Continue, Cursor, or OpenCode on pooled free models.
 Run <code>freellmpool code claude</code> for the exact setup. (The Claude Code path is experimental:
 text and tool use, no vision yet.)</p>
 
 <h3>Do I need an API key?</h3>
-<p>No key is required to start: Pollinations, OVHcloud, and Kilo Gateway work anonymously, so a fresh
-install answers immediately. Add free keys for the other providers to unlock more models and higher limits.</p>
+<p>No key is required to start: Pollinations, OVHcloud, and Kilo Gateway need no API key,
+and LLM7 is key-optional, so a fresh install can answer without signup when a keyless provider is up. Add free keys for the other providers to
+unlock more models and higher limits.</p>
 
 <h3>Which free LLM providers does it support?</h3>
-<p>18 providers: Pollinations, OVHcloud, LLM7, Groq, Cerebras, NVIDIA NIM, OpenRouter, Google Gemini,
-GitHub Models, Cloudflare Workers AI, Mistral, Cohere, SambaNova, Z.ai/Zhipu, Ollama Cloud,
-LongCat, Kilo Gateway (keyless), and Hugging Face (router) — 200+ live-validated chat models, 300+ cataloged models, plus free embeddings and audio transcription (Whisper).</p>
+<p>19 cataloged providers: Pollinations, OVHcloud, LLM7, Kilo Gateway, OpenCode Zen (disabled by default), Groq, Cerebras, NVIDIA NIM,
+OpenRouter, Google Gemini, GitHub Models, Cloudflare Workers AI, Mistral, Cohere, SambaNova, Z.ai/Zhipu,
+Ollama Cloud, LongCat, and Hugging Face (router) — 235 enabled chat routes, 355 cataloged chat models,
+plus free embeddings and audio transcription (Whisper).</p>
 
 <h3>How do I know which free providers are usable right now?</h3>
 <p>Run <code>freellmpool capacity status</code>: it labels each provider <code>healthy</code>,
@@ -142,7 +148,7 @@ configuring more. See the <a href="capacity-management.html">capacity guide</a>.
 <h3>How is freellmpool different from OpenRouter?</h3>
 <p>OpenRouter is a hosted aggregator you pay per token (with some rate-limited free models) and access
 through its API. freellmpool is a local, open-source tool you <code>pip install</code> that pools the
-providers' own free tiers directly, works with no key to start, and ships a CLI, a Python library, a
+providers' own free tiers directly, can start keyless when routes are available, and ships a CLI, a Python library, a
 proxy, and an MCP server.</p>
 
 <h3>Is freellmpool free and open source?</h3>
@@ -155,9 +161,14 @@ proxy, and an MCP server.</p>
 everyday coding, not GPT-class reasoning on the hardest problems. Limits reset at UTC midnight and
 capacity varies through the day. The proxy is meant for local/single-user use.</p>
 
+<h3>Where do prompts go?</h3>
+<p>freellmpool is not a privacy layer: prompts go to the selected upstream
+provider. See the <a href="https://github.com/0xzr/freellmpool/blob/main/FAQ.md">FAQ</a>
+for provider routing, ToS, and privacy notes.</p>
+
 </div>
 
-<p class="meta">Free and open source (MIT). Latest release: 0.11.3. Page updated 2026-06-11.
+<p class="meta">Free and open source (MIT). Latest release: 0.11.4. Page updated 2026-06-17.
 Project: <a href="https://github.com/0xzr/freellmpool">github.com/0xzr/freellmpool</a></p>
 
 </div>
@@ -169,10 +180,10 @@ Project: <a href="https://github.com/0xzr/freellmpool">github.com/0xzr/freellmpo
   "name": "freellmpool",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Linux, macOS, Windows",
-  "description": "Free, open-source OpenAI-compatible gateway that pools the free tiers of 18 LLM providers (Groq, Cerebras, NVIDIA, Gemini, OpenRouter, Cloudflare, Mistral, Cohere and more) behind one endpoint, with automatic failover. CLI, Python library, local proxy, and MCP server. Keyless to start.",
+  "description": "Free, open-source OpenAI-compatible gateway that pools the free tiers of 19 cataloged LLM providers (Groq, Cerebras, NVIDIA, Gemini, OpenRouter, Cloudflare, Mistral, Cohere and more) behind one endpoint, with automatic failover. CLI, Python library, local proxy, and MCP server. Keyless start when routes are available.",
   "url": "https://0xzr.github.io/freellmpool/",
   "downloadUrl": "https://pypi.org/project/freellmpool/",
-  "softwareVersion": "0.11.3",
+  "softwareVersion": "0.11.4",
   "license": "https://opensource.org/licenses/MIT",
   "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
   "author": {"@type": "Person", "name": "0xzr"}

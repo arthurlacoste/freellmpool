@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Free Claude API: how to use Claude-style models (and Claude Code) for free</title>
-<meta name="description" content="Anthropic doesn't offer a free Claude API tier, but you can run Claude Code and Anthropic-API apps on free LLM models using freellmpool — a local proxy that implements the Anthropic Messages API and routes it to 18 pooled free providers. Keyless to start.">
+<meta name="description" content="Anthropic doesn't offer a free Claude API tier, but you can run Claude Code and Anthropic-API apps on free LLM models using freellmpool — a local proxy with an experimental Anthropic-compatible path over 19 pooled free providers. Keyless start when routes are available.">
 <link rel="canonical" href="https://0xzr.github.io/freellmpool/free-claude-api.html">
 <meta property="og:title" content="Free Claude API alternative — run Claude Code on free models">
-<meta property="og:description" content="Run Anthropic-API apps and Claude Code on free LLM tiers via a local Anthropic-compatible proxy.">
+<meta property="og:description" content="Run Anthropic-API apps and Claude Code on free LLM tiers via freellmpool's experimental Anthropic-compatible path.">
 <meta property="og:type" content="article">
 <style>
  :root{--bg:#0b0e14;--fg:#e6e6e6;--mut:#8a93a2;--card:#141925;--bd:#232a39;--ac:#6ea8ff}
@@ -20,7 +20,9 @@
  .meta{color:var(--mut);font-size:13px;margin-top:34px;border-top:1px solid var(--bd);padding-top:14px}ul{padding-left:20px}
 </style>
 <meta property="og:url" content="https://0xzr.github.io/freellmpool/free-claude-api.html">
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="summary_large_image">
+<meta property="og:image" content="https://0xzr.github.io/freellmpool/assets/social-preview.png">
+<meta name="twitter:image" content="https://0xzr.github.io/freellmpool/assets/social-preview.png">
 </head>
 <body><div class="wrap">
 <p class="tag"><a href="https://0xzr.github.io/freellmpool/">freellmpool</a> › guide</p>
@@ -29,9 +31,9 @@
 <p class="lead"><strong>Anthropic doesn't publish a free Claude API tier, so "a free Claude API key"
 doesn't exist. What you can do is run Claude Code and any Anthropic-API app against <em>free</em> LLM
 models by pointing them at <a href="https://github.com/0xzr/freellmpool">freellmpool</a> — a local proxy
-that implements the Anthropic Messages API (<code>/v1/messages</code>) and routes it to 18 pooled free
-providers with failover. It's keyless to start (<code>pip install freellmpool</code>), and your tool keeps
-speaking the Anthropic API unchanged.</strong></p>
+with an experimental Anthropic-compatible path (<code>/v1/messages</code>) over 19 pooled free
+providers with failover. It supports keyless start when routes are available for text/tool
+workflows.</strong></p>
 
 <h2>Run Claude Code on free models</h2>
 <pre><code>pip install freellmpool
@@ -46,7 +48,7 @@ claude</code></pre>
 <p>Run <code>freellmpool code claude</code> to print this setup. See the full
 <a href="run-coding-agents-on-free-models.html">coding-agents guide</a> for Codex, Aider, Cline and more.</p>
 
-<h2>Use the Anthropic API from your own code</h2>
+<h2>Use the Anthropic-compatible API path from your own code</h2>
 <pre><code>from anthropic import Anthropic
 client = Anthropic(base_url="http://localhost:8080", api_key="anything")
 msg = client.messages.create(model="claude-3-5-sonnet-latest", max_tokens=256,
@@ -55,30 +57,33 @@ msg = client.messages.create(model="claude-3-5-sonnet-latest", max_tokens=256,
 
 <div class="note"><strong>What this is and isn't:</strong> you're <em>not</em> getting Anthropic's Claude
 models for free — they aren't available free. You're running the same Anthropic-API <em>interface</em> on
-free models from other providers, so Claude Code and Anthropic-SDK apps work without code changes. Quality
-is bounded by the free-tier models, and the path is experimental (text and tool use; no vision yet).</p>
+free models from other providers, so Claude Code and Anthropic-SDK apps can use the same text/tool
+interface. Quality is bounded by the free-tier models, and the path is experimental (text and tool use; no vision yet).</div>
 
 <h2>Why use freellmpool for this</h2>
 <ul>
-<li>It's the only part you install — one <code>pip</code>, no key to start.</li>
-<li>Failover across 18 providers, so a single tier's rate limit doesn't stop you.</li>
+<li>It's the only part you install — one <code>pip</code>, keyless start when routes are available.</li>
+<li>Failover across configured providers, so a single tier's rate limit doesn't stop you.</li>
 <li>The same proxy also serves the OpenAI API, so OpenAI-SDK tools work too.</li>
 </ul>
+
+<p class="tag">Privacy note: freellmpool is not a privacy layer; prompts go to the selected upstream provider.
+See the <a href="https://github.com/0xzr/freellmpool/blob/main/FAQ.md">FAQ</a>.</p>
 
 <h2>FAQ</h2>
 <h3>Is there a free Claude API?</h3>
 <p>Anthropic doesn't offer a free Claude API tier. The practical free path is to run Claude Code and
-Anthropic-API apps on free models from other providers via freellmpool's Anthropic-compatible proxy —
-keyless to start, no code changes.</p>
+Anthropic-API apps on free models from other providers via freellmpool's experimental Anthropic-compatible path —
+keyless start when routes are available.</p>
 <h3>How do I use Claude Code without paying?</h3>
 <p>Start <code>freellmpool proxy</code>, set <code>ANTHROPIC_BASE_URL=http://localhost:8080</code> and any
 <code>ANTHROPIC_API_KEY</code>, then run <code>claude</code>. It runs on pooled free models. The path is
 experimental (text + tools, no vision).</p>
 <h3>Will it use real Claude models?</h3>
-<p>No — real Anthropic Claude models aren't available for free. freellmpool routes the Anthropic API
+<p>No — real Anthropic Claude models aren't available for free. freellmpool routes the Anthropic-compatible path
 interface to free models from other providers, which is what makes it free.</p>
 
-<p class="meta">Part of <a href="https://github.com/0xzr/freellmpool">freellmpool</a> (MIT, free, open source). Updated 2026-06-03.</p>
+<p class="meta">Part of <a href="https://github.com/0xzr/freellmpool">freellmpool</a> (MIT, free, open source). Updated 2026-06-17.</p>
 </div>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "freellmpool", "item": "https://0xzr.github.io/freellmpool/"}, {"@type": "ListItem", "position": 2, "name": "Free Claude API", "item": "https://0xzr.github.io/freellmpool/free-claude-api.html"}]}</script>
 </body></html>

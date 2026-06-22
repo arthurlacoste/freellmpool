@@ -15,6 +15,19 @@ export OPENAI_API_KEY=anything   # ignored by freellmpool
 
 Then wire up your tool of choice.
 
+For structured setup, use profiles:
+
+```bash
+freellmpool profile list
+freellmpool profile show opencode
+freellmpool profile install opencode
+freellmpool profile doctor opencode --dry-run
+```
+
+`freellmpool code <agent>` remains a compatibility shortcut that renders the
+same profile quick-start. `profile install <agent>` is print-only; it does not
+edit third-party config files.
+
 ## OpenAI Python SDK / OpenAI Agents SDK
 
 ```python
@@ -61,6 +74,57 @@ codex --config model_provider=openai   # or set base URL in ~/.codex/config.toml
 > The Responses shim is minimal (text in/out, streaming events). It's great for
 > running Codex/agents on free inference for everyday coding; tool-calling and
 > richer Responses features are a work in progress.
+
+## Metaswarm external-tools review
+
+Metaswarm can use `freellmpool` as a review-only external tool. The integration
+is in [`integrations/metaswarm`](../integrations/metaswarm): copy
+`freellmpool-review-adapter.sh` into `.metaswarm/adapters/freellmpool.sh`, then
+add it to `.metaswarm/external-tools.yaml` with roles `review` and
+`second_opinion`.
+
+The adapter is deliberately not an implementer. It reviews a worktree diff
+against a spec/rubric, runs a configurable strong-model panel through
+`freellmpool`, and emits a metaswarm-style JSON envelope. If no strong provider
+key is configured (`MISTRAL_API_KEY`, `NVIDIA_API_KEY`, or `OPENROUTER_API_KEY`
+by default), it returns `error_type: "auth_missing"` before any provider call.
+
+The first-class profile is:
+
+```bash
+freellmpool profile show metaswarm
+freellmpool profile doctor metaswarm --dry-run
+```
+
+It documents one free/cheap worker lane through the local proxy, one larger
+reviewer lane, Tailnet URL setup for remote agents, and Codex/Opus as explicit
+user-owned paid escalation/final-review tools. freellmpool does not select those
+paid lanes silently.
+
+The copy-pastable setup path is:
+
+```bash
+freellmpool init --yes --agent metaswarm --tailnet
+freellmpool profile install metaswarm
+freellmpool tailnet serve --port 8080
+freellmpool profile doctor metaswarm --dry-run
+```
+
+## Workflows that help agents
+
+- `freellmpool roles` shows role presets (`coder`, `critic`, `summarizer`,
+  `second-opinion`, ...).
+- `freellmpool ask --role coder --second-opinion` can review an implementation
+  plan before a long agent run.
+- `freellmpool battle "which prompt version is clearer?"` compares model answers
+  side by side.
+- `freellmpool recipe run metaswarm-worker-review --input worker.md --validation-output-file validation.txt`
+  returns a structured review of a worker summary.
+- `freellmpool jobs add --recipe pr-review --input patch.diff` queues slow,
+  quota-aware review work for foreground processing with `freellmpool jobs run`.
+  Completed recipe jobs create run records you can inspect with
+  `freellmpool report list`, `freellmpool report last --markdown`, and
+  `freellmpool cost show <run-id>`.
 
 ## aider (AI pair programming in your terminal)
 

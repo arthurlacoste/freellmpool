@@ -1,8 +1,8 @@
-# MCP Registry Listing Handoff
+# MCP Registry Listing Status
 
-Prepared on 2026-06-11. Do not submit, publish, push registry branches, or open
-external PRs from the polish automation branch. The operator submits after the
-polish PR is merged and `freellmpool 0.11.3` is published to PyPI.
+Updated on 2026-06-19 after the `freellmpool 0.11.4` release docs pass. The official MCP
+Registry entry and MCP.so submission are complete; Smithery, Glama, and PulseMCP
+still need account/web UI actions.
 
 ## Local Manifest Status
 
@@ -10,7 +10,7 @@ polish PR is merged and `freellmpool 0.11.3` is published to PyPI.
 
 - Schema: `https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`
 - Name: `io.github.0xzr/freellmpool`
-- Version: `0.11.3`
+- Version: `0.11.4`
 - Repository: `https://github.com/0xzr/freellmpool`
 - Package: PyPI `freellmpool`, runtime hint `uvx`
 - Transport: stdio
@@ -47,6 +47,12 @@ Tool surface to mention in every listing:
 
 - `free_llm_ask`
 - `free_llm_panel`
+- `free_llm_second_opinion`
+- `free_llm_battle`
+- `free_llm_recipe`
+- `free_llm_roles`
+- `free_llm_tailnet_info`
+- `free_llm_quota_wise`
 - `tokenmax`
 - `free_llm_route`
 - `free_llm_models`
@@ -57,10 +63,11 @@ Tool surface to mention in every listing:
 
 | Registry | Status | Requirement checked | Operator action |
 |---|---|---|---|
+| Official MCP Registry | Published | `server.json` validates with `mcp-publisher`; PyPI package README includes hidden `mcp-name: io.github.0xzr/freellmpool` ownership metadata. | Active/latest listing: <https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.0xzr/freellmpool>. Re-run `mcp-publisher publish` after future MCP package releases. |
 | Smithery | Ready for operator packaging; not directly URL-ready | Smithery URL publishing requires Streamable HTTP; local stdio publishing uses an MCPB bundle. Source: <https://smithery.ai/docs/build/publish>. | Build a local MCPB bundle for `freellmpool mcp`, then go to <https://smithery.ai/new>, choose **Local (MCPB Bundle)**, upload the bundle, and paste the copy from `docs/mcp-listings/smithery.md`. |
 | Glama | Ready after merge | Glama lists open-source MCP servers from GitHub repo submission, verifies maintainer GitHub OAuth access, clones/builds/introspects the repo, and scores tools. Sources: <https://glama.ai/> and <https://glama.ai/mcp/methodology>. | Sign in, open <https://glama.ai/mcp/servers>, click **Submit** / **List your server for free**, enter `https://github.com/0xzr/freellmpool`, authorize with a GitHub account that has write/admin access, and paste the copy from `docs/mcp-listings/glama-submission.md` if the form asks for details. |
-| MCP.so | Ready after merge | MCP.so says submissions are created via a GitHub issue and should include name, description, features, and connection information. Source: <https://mcp.so/>. | Open <https://mcp.so/>, click **Submit**, create the GitHub issue, and use `docs/mcp-listings/mcp-so-issue.md` as the issue body. |
-| PulseMCP | Ready after merge; strongest after official registry publish | PulseMCP says its directory uses manual submissions, automated crawling, the official MCP Registry, and server.json metadata enrichment. Sources: <https://www.pulsemcp.com/api> and example listing <https://www.pulsemcp.com/servers/wei-mcp-registry>. | Open <https://www.pulsemcp.com/>, click **Submit server/client**, submit `https://github.com/0xzr/freellmpool`, and use `docs/mcp-listings/pulsemcp-submission.md`. After `server.json` is published to the official MCP Registry, ask PulseMCP to refresh if the listing does not appear automatically. |
+| MCP.so | Submitted | MCP.so says submissions are created via a GitHub issue and should include name, description, features, and connection information. Source: <https://mcp.so/>. | Submission comment: <https://github.com/chatmcp/mcpso/issues/1#issuecomment-4725456286>. Watch for maintainer import. |
+| PulseMCP | Ready; may crawl from official registry | PulseMCP says its directory uses manual submissions, automated crawling, the official MCP Registry, and server.json metadata enrichment. Sources: <https://www.pulsemcp.com/api> and example listing <https://www.pulsemcp.com/servers/wei-mcp-registry>. | Wait for the official registry crawl, or open <https://www.pulsemcp.com/>, click **Submit server/client**, submit `https://github.com/0xzr/freellmpool`, and use `docs/mcp-listings/pulsemcp-submission.md`. |
 
 ## Submission Files
 
@@ -69,4 +76,5 @@ Tool surface to mention in every listing:
 - `docs/mcp-listings/mcp-so-issue.md`
 - `docs/mcp-listings/pulsemcp-submission.md`
 
-No external submissions were performed while preparing this handoff.
+External submissions performed: official MCP Registry publish and MCP.so issue
+comment. The remaining directories require the operator's account or browser UI.

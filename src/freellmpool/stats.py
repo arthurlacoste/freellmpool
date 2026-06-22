@@ -1,7 +1,7 @@
-"""Persistent lifetime usage totals behind the "served free / avoided cost" metric.
+"""Persistent lifetime usage totals behind the "served free / estimated cost avoided" metric.
 
 Unlike :mod:`quota` (per-day, advisory, reset at UTC midnight), this accumulates
-*monotonically across restarts* so the tokens-served / avoided-cost figure grows
+*monotonically across restarts* so the tokens-served / estimated-cost figure grows
 over a pool's whole lifetime — the number behind ``freellmpool stats``, the SVG
 badge, and the dashboard. Same robustness as the quota store: a JSON file, a
 cross-process flock around the read-modify-write, and an atomic ``os.replace``.

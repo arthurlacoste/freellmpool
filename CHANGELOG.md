@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Experimental metaswarm review adapter integration, with setup docs and no-key
+  smoke coverage for fail-closed `auth_missing` behavior.
+
+## [0.11.4] — 2026-06-17
+
+MCP Registry verification metadata release.
+
+### Added
+- Hidden `mcp-name: io.github.0xzr/freellmpool` README metadata so the official
+  MCP Registry can verify PyPI package ownership.
+- Test coverage that `freellmpool tokenmax --timeout` is also honored by the
+  synthesis request.
+
 ## [0.11.3] — 2026-06-11
 
 Launch polish and packaging metadata release.
@@ -18,6 +34,8 @@ Launch polish and packaging metadata release.
 - Contributor templates, PR template, and ready-to-file good-first-issue drafts
   for newcomer-sized tasks.
 - Release checklist for the operator-run tag/build/publish flow.
+- `freellmpool ask --timeout` and `freellmpool tokenmax --timeout` so slow
+  upstreams can be bounded explicitly from the CLI.
 
 ### Changed
 - Public provider/model counts are now checked from the provider catalog by

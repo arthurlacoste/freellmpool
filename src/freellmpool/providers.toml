@@ -74,7 +74,23 @@ models = [
     { name = "poolside/laguna-m.1:free", rpd = 0 },
     { name = "poolside/laguna-xs.2:free", rpd = 0 },
     { name = "stepfun/step-3.7-flash:free", rpd = 0 },
+    { name = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", rpd = 0 },
     { name = "nvidia/nemotron-3-super-120b-a12b:free", rpd = 0 },
+]
+
+# OpenCode Zen: keyless OpenAI-compatible gateway. Free promotional routes expire
+# quickly and are not part of the default zero-key pool until explicitly vetted for
+# privacy/retention posture.
+[[provider]]
+id = "opencode"
+label = "OpenCode Zen (keyless)"
+adapter = "openai"
+base_url = "https://opencode.ai/zen/v1"
+auth = "none"
+models = [
+    { name = "deepseek-v4-flash-free", rpd = 0, enabled = false },
+    { name = "nemotron-3-ultra-free", rpd = 0, enabled = false },
+    { name = "north-mini-code-free", rpd = 0, enabled = false },
 ]
 
 # Hugging Face router: OpenAI-compatible aggregator over inference providers (Fireworks,
@@ -112,6 +128,7 @@ models = [
     { name = "meta-llama/llama-4-scout-17b-16e-instruct", rpd = 1000 },
     { name = "groq/compound", rpd = 1000 },
     { name = "qwen/qwen3-32b", rpd = 1000 },
+    { name = "qwen/qwen3.6-27b", rpd = 1000 },
     { name = "allam-2-7b", rpd = 1000 },
     { name = "groq/compound-mini", rpd = 1000 },
 ]
@@ -150,8 +167,8 @@ models = [
     { name = "bytedance/seed-oss-36b-instruct", rpd = 0, enabled = false },
     { name = "databricks/dbrx-instruct", rpd = 0, enabled = false },
     { name = "deepseek-ai/deepseek-coder-6.7b-instruct", rpd = 0, enabled = false },
-    { name = "deepseek-ai/deepseek-v4-flash", rpd = 0, enabled = false },
-    { name = "deepseek-ai/deepseek-v4-pro", rpd = 0, enabled = false },
+    { name = "deepseek-ai/deepseek-v4-flash", rpd = 0 },
+    { name = "deepseek-ai/deepseek-v4-pro", rpd = 0 },
     { name = "google/codegemma-1.1-7b", rpd = 0, enabled = false },
     { name = "google/codegemma-7b", rpd = 0, enabled = false },
     { name = "google/gemma-2-2b-it", rpd = 0, enabled = false },
@@ -178,8 +195,9 @@ models = [
     { name = "microsoft/phi-3-vision-128k-instruct", rpd = 0, enabled = false },
     { name = "microsoft/phi-3.5-moe-instruct", rpd = 0, enabled = false },
     { name = "microsoft/phi-4-mini-instruct", rpd = 0, enabled = false },
-    { name = "microsoft/phi-4-multimodal-instruct", rpd = 0, enabled = false },
+    { name = "microsoft/phi-4-multimodal-instruct", rpd = 0 },
     { name = "minimaxai/minimax-m2.7", rpd = 0 },
+    { name = "minimaxai/minimax-m3", rpd = 0 },
     { name = "mistralai/codestral-22b-instruct-v0.1", rpd = 0, enabled = false },
     { name = "mistralai/ministral-14b-instruct-2512", rpd = 0 },
     { name = "mistralai/mistral-7b-instruct-v0.3", rpd = 0, enabled = false },
@@ -194,7 +212,7 @@ models = [
     { name = "nvidia/cosmos-reason2-8b", rpd = 0, enabled = false },
     { name = "nvidia/llama-3.1-nemotron-51b-instruct", rpd = 0, enabled = false },
     { name = "nvidia/llama-3.1-nemotron-70b-instruct", rpd = 0, enabled = false },
-    { name = "nvidia/llama-3.1-nemotron-nano-8b-v1", rpd = 0 },
+    { name = "nvidia/llama-3.1-nemotron-nano-8b-v1", rpd = 0, enabled = false },
     { name = "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", rpd = 0 },
     { name = "nvidia/llama-3.1-nemotron-ultra-253b-v1", rpd = 0, enabled = false },
     { name = "nvidia/llama-3.3-nemotron-super-49b-v1", rpd = 0 },
@@ -215,7 +233,7 @@ models = [
     { name = "openai/gpt-oss-20b", rpd = 0 },
     { name = "qwen/qwen3-coder-480b-a35b-instruct", rpd = 0, enabled = false },
     { name = "qwen/qwen3-next-80b-a3b-instruct", rpd = 0 },
-    { name = "qwen/qwen3.5-122b-a10b", rpd = 0 },
+    { name = "qwen/qwen3.5-122b-a10b", rpd = 0, enabled = false },
     { name = "qwen/qwen3.5-397b-a17b", rpd = 0 },
     { name = "sarvamai/sarvam-m", rpd = 0 },
     { name = "stepfun-ai/step-3.5-flash", rpd = 0 },
@@ -244,12 +262,12 @@ models = [
     { name = "deepseek/deepseek-chat-v3.1:free", rpd = 1000, enabled = false },
     { name = "z-ai/glm-4.5-air:free", rpd = 1000, enabled = false },
     { name = "nousresearch/hermes-3-llama-3.1-405b:free", rpd = 1000 },
-    { name = "openrouter/owl-alpha", rpd = 1000, enabled = false },
+    { name = "openrouter/owl-alpha", rpd = 1000 },
     { name = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", rpd = 1000 },
     { name = "poolside/laguna-xs.2:free", rpd = 1000 },
     { name = "poolside/laguna-m.1:free", rpd = 1000 },
     { name = "moonshotai/kimi-k2.6:free", rpd = 1000, enabled = false },
-    { name = "nex-agi/nex-n2-pro:free", rpd = 1000 },
+    { name = "nex-agi/nex-n2-pro:free", rpd = 1000, enabled = false },
     { name = "google/gemma-4-26b-a4b-it:free", rpd = 1000 },
     { name = "google/gemma-4-31b-it:free", rpd = 1000 },
     { name = "google/lyria-3-pro-preview", rpd = 1000, enabled = false },
@@ -287,7 +305,7 @@ adapter = "openai"
 base_url = "https://models.github.ai/inference"
 key_env = "GITHUB_TOKEN"
 models = [
-    { name = "openai/gpt-4.1-mini", rpd = 150 },
+    { name = "openai/gpt-4.1-mini", rpd = 150, enabled = false },
     { name = "openai/gpt-4.1-nano", rpd = 150 },
     { name = "openai/gpt-4o-mini", rpd = 150 },
     { name = "mistral-ai/mistral-small-2503", rpd = 150 },
@@ -339,7 +357,7 @@ key_env = "CLOUDFLARE_API_TOKEN"
 extra_env = ["CLOUDFLARE_ACCOUNT_ID"]
 models = [
     { name = "@cf/meta/llama-3.3-70b-instruct-fp8-fast", rpd = 0 },
-    { name = "@cf/google/gemma-3-12b-it", rpd = 0 },
+    { name = "@cf/google/gemma-3-12b-it", rpd = 0, enabled = false },
     { name = "@cf/mistralai/mistral-small-3.1-24b-instruct", rpd = 0 },
     { name = "@cf/meta/llama-3.1-70b-instruct", rpd = 0 },
     { name = "@cf/openai/gpt-oss-120b", rpd = 0 },
@@ -393,8 +411,8 @@ models = [
     { name = "mistral-small-2603", rpd = 0 },
     { name = "mistral-vibe-cli-fast", rpd = 0 },
     { name = "magistral-small-latest", rpd = 0 },
-    { name = "magistral-medium-2509", rpd = 0, enabled = false },
-    { name = "magistral-medium-latest", rpd = 0, enabled = false },
+    { name = "magistral-medium-2509", rpd = 0 },
+    { name = "magistral-medium-latest", rpd = 0 },
     { name = "labs-leanstral-2603", rpd = 0, enabled = false },
     { name = "mistral-large-2512", rpd = 0 },
     { name = "mistral-large-latest", rpd = 0 },
@@ -410,7 +428,7 @@ models = [
     { name = "mistral-medium-2604", rpd = 0 },
     { name = "mistral-medium-c21211-r0-75", rpd = 0, enabled = false },
     { name = "mistral-vibe-cli-latest", rpd = 0 },
-    { name = "magistral-small-2509", rpd = 0, enabled = false },
+    { name = "magistral-small-2509", rpd = 0 },
     { name = "mistral-small-2506", rpd = 0 },
 ]
 
@@ -484,8 +502,8 @@ models = [
     { name = "rnj-1:8b", rpd = 0 },
     { name = "nemotron-3-super", rpd = 0 },
     { name = "nemotron-3-ultra", rpd = 0 },
-    { name = "qwen3-vl:235b-instruct", rpd = 0 },
-    { name = "qwen3-vl:235b", rpd = 0 },
+    { name = "qwen3-vl:235b-instruct", rpd = 0, enabled = false },
+    { name = "qwen3-vl:235b", rpd = 0, enabled = false },
     { name = "deepseek-v3.2", rpd = 0, enabled = false },
     { name = "nemotron-3-nano:30b", rpd = 0 },
     { name = "gemma3:27b", rpd = 0 },
@@ -497,12 +515,12 @@ models = [
     { name = "minimax-m3", rpd = 0 },
     { name = "devstral-2:123b", rpd = 0 },
     { name = "glm-5", rpd = 0, enabled = false },
-    { name = "minimax-m2", rpd = 0 },
+    { name = "minimax-m2", rpd = 0, enabled = false },
     { name = "mistral-large-3:675b", rpd = 0, enabled = false },
     { name = "devstral-small-2:24b", rpd = 0 },
     { name = "gemma3:12b", rpd = 0 },
-    { name = "cogito-2.1:671b", rpd = 0 },
-    { name = "glm-4.6", rpd = 0 },
+    { name = "cogito-2.1:671b", rpd = 0, enabled = false },
+    { name = "glm-4.6", rpd = 0, enabled = false },
     { name = "glm-4.7", rpd = 0 },
     { name = "kimi-k2-thinking", rpd = 0, enabled = false },
     { name = "deepseek-v4-pro", rpd = 0, enabled = false },
@@ -510,7 +528,7 @@ models = [
     { name = "qwen3.5:397b", rpd = 0, enabled = false },
     { name = "glm-5.1", rpd = 0, enabled = false },
     { name = "kimi-k2.5", rpd = 0, enabled = false },
-    { name = "qwen3-next:80b", rpd = 0 },
+    { name = "qwen3-next:80b", rpd = 0, enabled = false },
     { name = "ministral-3:8b", rpd = 0 },
     { name = "ministral-3:14b", rpd = 0 },
     { name = "minimax-m2.5", rpd = 0 },

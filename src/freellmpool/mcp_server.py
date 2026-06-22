@@ -12,32 +12,61 @@ where a prompt would route, and watch the free tokens add up:
     }
 
 Tools exposed:
-    free_llm_ask     ask a free model (routing-aware; tells you which model served)
-    free_llm_panel   ask N free models in parallel and compare — a free second opinion
-    tokenmax         🌈 blast the prompt to a swarm of models; you synthesize them all
-    free_llm_route   explain where a prompt WOULD route (difficulty + ranked models), $0
-    free_llm_models  list available provider/model ids
-    free_llm_quota   today's per-provider usage + daily-limit headroom
-    free_llm_stats   lifetime tokens served free + estimated cost avoided
+    free_llm_ask             ask a free model (routing-aware; tells you which model served)
+    free_llm_panel           ask N free models in parallel and compare — a free second opinion
+    free_llm_second_opinion  same panel behavior, exposed as its own agent-facing tool
+    free_llm_battle          bounded multi-model comparison rendered as Markdown
+    free_llm_recipe          run a bundled recipe (panel/text) end-to-end
+    free_llm_roles           list available roles and recommended use
+    free_llm_tailnet_info    safe Tailscale Tailnet connection instructions
+    free_llm_quota_wise      local quota-mode / headroom advice (no bypass suggestions)
+    tokenmax                 🌈 blast the prompt to a swarm of models; you synthesize them all
+    free_llm_route           explain where a prompt WOULD route (difficulty + ranked models), $0
+    free_llm_models          list available provider/model ids
+    free_llm_quota           today's per-provider usage + daily-limit headroom
+    free_llm_stats           lifetime tokens served free + estimated cost avoided
 
 Implemented on the standard library only — no MCP SDK required.
 """
 
 from __future__ import annotations
 
-import concurrent.futures as _cf
 import json
 import sys
 import threading
 import time
 
+from .battle import render_battle_markdown, run_battle
 from .config import resolve_alias, split_provider_model
+from .mode import current_mode, render_quota_wise_status
+from .panel import (
+    MAX_PANEL_COUNT,
+    clamp_max_tokens,
+    clamp_panel_count,
+    render_panel_markdown,
+    run_panel,
+)
+from .recipes import (
+    MissingRecipeInputError,
+    MissingRecipeVariableError,
+    RecipeError,
+    UnknownRecipeError,
+    collect_recipe_input,
+    get_recipe,
+)
+from .roles import format_roles, valid_roles
 from .router import Pool
 from .routing_modes import routing_override
+from .tailnet import (
+    detect_tailnet,
+    format_setup_hints,
+    generate_session_token_simple,
+    safe_base_url,
+)
 from .tokenmax import HARD_CAP, RAINBOW_BANNER, fan_out, select_targets
 
 _DEFAULT_PROTOCOL = "2025-06-18"
-_MAX_PANEL = 5
+_MAX_PANEL = MAX_PANEL_COUNT
 
 # Returned in the `initialize` handshake (MCP's standard `instructions` field) so the
 # calling agent learns HOW to invoke these tools — chiefly: call them directly instead
@@ -97,9 +126,9 @@ TOOLS = [
         "name": "free_llm_panel",
         "description": (
             "Ask the SAME prompt to several different free models at once and get every "
-            "answer back side by side — a free 'second opinion' / ensemble. Great for "
-            "cross-checking a fact, comparing approaches, or reducing single-model bias. "
-            "Optionally have a strong model synthesize the best combined answer."
+            "answer back side by side - the agent-facing second-opinion surface. Great "
+            "for cross-checking a fact, comparing approaches, or reducing single-model "
+            "bias. Optionally have a strong model synthesize the best combined answer."
         ),
         "inputSchema": {
             "type": "object",
@@ -117,12 +146,188 @@ TOOLS = [
                     "type": "boolean",
                     "description": "If true, a quality-routed model synthesizes the panel into one best answer.",
                 },
+                "routing": {
+                    "type": "string",
+                    "enum": ["auto", "fast", "quality", "fair", "spread"],
+                    "description": "How to rank candidate panel models (default: quality).",
+                },
                 "max_tokens": {
                     "type": "integer",
                     "description": "Max output tokens per model (default 512).",
                 },
             },
             "required": ["prompt"],
+        },
+    },
+    {
+        "name": "free_llm_second_opinion",
+        "description": (
+            "Run the shared small-panel second-opinion flow. Same behavior as "
+            "`free_llm_panel` — exposed as its own agent-facing tool so callers can "
+            "declare their intent (a *second opinion*) without reasoning about the "
+            "panel primitive. The panel size is bounded (2-5) and the per-model "
+            "token budget is clamped."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "The question or task to ask every model.",
+                },
+                "system": {"type": "string", "description": "Optional system instruction."},
+                "n": {
+                    "type": "integer",
+                    "description": f"How many distinct models to ask (2-{_MAX_PANEL}, default 3).",
+                },
+                "synthesize": {
+                    "type": "boolean",
+                    "description": "If true, a quality-routed model synthesizes the panel into one best answer.",
+                },
+                "routing": {
+                    "type": "string",
+                    "enum": ["auto", "fast", "quality", "fair", "spread"],
+                    "description": "How to rank candidate panel models (default: quality).",
+                },
+                "max_tokens": {
+                    "type": "integer",
+                    "description": "Max output tokens per model (default 512).",
+                },
+            },
+            "required": ["prompt"],
+        },
+    },
+    {
+        "name": "free_llm_battle",
+        "description": (
+            "Compare a prompt across a small bounded panel of free models and render the "
+            "result as a Markdown comparison table. Bounded to a few models (2-5) — for "
+            "the every-model stress test use `tokenmax`. Per-model failures stay visible "
+            "in the rendered output rather than failing the whole call."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "The question or task to compare across models.",
+                },
+                "n": {
+                    "type": "integer",
+                    "description": f"How many distinct models to ask (2-{_MAX_PANEL}, default 3).",
+                },
+                "synthesize": {
+                    "type": "boolean",
+                    "description": "If true, a quality-routed model synthesizes the panel into one best answer.",
+                },
+                "routing": {
+                    "type": "string",
+                    "enum": ["auto", "fast", "quality", "fair", "spread"],
+                    "description": "How to rank candidate panel models (default: quality).",
+                },
+                "max_tokens": {
+                    "type": "integer",
+                    "description": "Max output tokens per model (default 512).",
+                },
+            },
+            "required": ["prompt"],
+        },
+    },
+    {
+        "name": "free_llm_recipe",
+        "description": (
+            "Run a bundled recipe end-to-end (e.g. `pr-review`, `second-opinion`, "
+            "`repo-summary`). Recipes are bounded, role-driven, and pre-shaped — supply "
+            "`name` plus whatever inputs the recipe declares. Missing recipe input or "
+            "template variables return a tool error, never a traceback."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Recipe name (e.g. `pr-review`, `second-opinion`, `repo-summary`).",
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "Optional inline text input (used for text-input recipes).",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Optional glob for path-input recipes (e.g. `repo-summary --path 'src/**/*.py'`).",
+                },
+                "input": {
+                    "type": "string",
+                    "description": "Optional alias for `prompt` (recipe `input` template variable).",
+                },
+                "validation_output": {
+                    "type": "string",
+                    "description": "Optional validation/test output for recipes that template it (e.g. `metaswarm-worker-review`).",
+                },
+                "opinions": {
+                    "type": "integer",
+                    "description": f"Panel size for panel-output recipes (2-{_MAX_PANEL}, default 3).",
+                },
+                "synthesize": {
+                    "type": "boolean",
+                    "description": "If true, a quality-routed model synthesizes the panel into one best answer.",
+                },
+                "max_tokens": {
+                    "type": "integer",
+                    "description": "Max output tokens (default 1024 for text recipes; panel recipes honor recipe defaults).",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "free_llm_roles",
+        "description": (
+            "List bundled ask-role presets (e.g. `coder`, `critic`, `summarizer`, "
+            "`second-opinion`) with their routing mode, max-tokens, temperature, and "
+            "recommended use. Pass `name` to get the full details for one role."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Optional role name to fetch a single role's details.",
+                },
+            },
+        },
+    },
+    {
+        "name": "free_llm_tailnet_info",
+        "description": (
+            "Show safe Tailscale Tailnet connection instructions for serving "
+            "`freellmpool proxy` on another machine. Includes the local Tailnet IPv4, "
+            "status, and OpenAI / Anthropic client env-var hints. Output NEVER contains "
+            "a real local bearer token — it uses a `<proxy-key>` placeholder — and never "
+            "leaks provider API keys. Degrades cleanly when `tailscale` is absent."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "port": {
+                    "type": "integer",
+                    "description": "Optional proxy port to include in setup hints (default 8080).",
+                },
+            },
+        },
+    },
+    {
+        "name": "free_llm_quota_wise",
+        "description": (
+            "Show local quota-wise status and headroom advice built from your locally "
+            "tracked counters. Active mode, recommended mode, and per-provider used / "
+            "limit / remaining. Output NEVER recommends account rotation or rate-limit "
+            "bypass — it only suggests waiting for reset, lowering fan-out or token "
+            "budget, or making an explicit paid choice outside the default flow."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
         },
     },
     {
@@ -254,6 +459,18 @@ def _call_tool(pool: Pool, params: dict, notify=None) -> dict:
         return _tool_ask(pool, args)
     if name == "free_llm_panel":
         return _tool_panel(pool, args)
+    if name == "free_llm_second_opinion":
+        return _tool_second_opinion(pool, args)
+    if name == "free_llm_battle":
+        return _tool_battle(pool, args)
+    if name == "free_llm_recipe":
+        return _tool_recipe(pool, args)
+    if name == "free_llm_roles":
+        return _tool_roles(args)
+    if name == "free_llm_tailnet_info":
+        return _tool_tailnet_info(args)
+    if name == "free_llm_quota_wise":
+        return _tool_quota_wise(pool)
     if name == "tokenmax":
         return _tool_tokenmax(pool, args, notify=notify)
     if name == "free_llm_route":
@@ -298,60 +515,218 @@ def _tool_panel(pool: Pool, args: dict) -> dict:
     prompt = args.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         return _text("'prompt' is required", is_error=True)
-    n = _clamp_int(args.get("n"), 3, 2, _MAX_PANEL)
-    max_tokens = _max_tokens(args.get("max_tokens"), 512)
-    msgs = _messages(args.get("system"), prompt)
-    # Pick the top N candidates across DISTINCT providers for diverse opinions.
-    picks, seen = [], set()
-    for t in pool.rank_targets(msgs, routing="quality"):
-        if t.provider.id in seen:
-            continue
-        seen.add(t.provider.id)
-        picks.append(t)
-        if len(picks) >= n:
-            break
-    if not picks:
+    routing = _routing_arg(args.get("routing")) or "quality"
+    result = run_panel(
+        pool,
+        prompt=prompt.strip(),
+        system=args.get("system"),
+        n=clamp_panel_count(args.get("n")),
+        routing=routing,
+        max_tokens=clamp_max_tokens(args.get("max_tokens")),
+        synthesize=bool(args.get("synthesize")),
+    )
+    if not result.answers:
         return _text("no providers configured", is_error=True)
+    return _text(render_panel_markdown(result))
 
-    def ask_one(t):
-        started = time.monotonic()
-        try:
-            r = pool.chat(msgs, model=t.model, providers=[t.provider.id], max_tokens=max_tokens)
-            return (
-                f"{r.provider_id}/{r.model}",
-                r.text,
-                round((time.monotonic() - started) * 1000),
-                None,
-            )
-        except Exception as exc:  # noqa: BLE001
-            return (f"{t.provider.id}/{t.model}", None, 0, f"{type(exc).__name__}: {exc}")
 
-    with _cf.ThreadPoolExecutor(max_workers=len(picks)) as ex:
-        results = list(ex.map(ask_one, picks))
+# `_tool_second_opinion` is the same callable as `_tool_panel` so the
+# "free_llm_second_opinion just runs the panel" contract is enforced by
+# Python identity, not just by convention — any future change to the panel
+# behavior automatically reaches both tools, and dispatch in `_call_tool`
+# routes the second-opinion tool name straight to the panel handler.
+_tool_second_opinion = _tool_panel
 
-    out = [f'freellmpool panel — {len(results)} free models on: "{prompt[:70]}"', ""]
-    answers = []
-    for label, text, ms, err in results:
-        if err:
-            out.append(f"### {label}  (failed)\n{err}\n")
-        else:
-            answers.append((label, text))
-            out.append(f"### {label}  ({ms}ms)\n{text}\n")
 
-    if args.get("synthesize") and answers:
-        blob = "\n\n".join(f"[{lbl}]\n{txt}" for lbl, txt in answers)
-        syn_prompt = (
-            "Below are several models' answers to the same question. Synthesize the single "
-            f"best, correct, concise answer, resolving any disagreements.\n\nQuestion: {prompt}\n\n{blob}"
+def _tool_battle(pool: Pool, args: dict) -> dict:
+    prompt = args.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return _text("'prompt' is required", is_error=True)
+    routing = _routing_arg(args.get("routing")) or "quality"
+    result = run_battle(
+        pool,
+        prompt=prompt.strip(),
+        n=clamp_panel_count(args.get("n")),
+        routing=routing,
+        max_tokens=clamp_max_tokens(args.get("max_tokens")),
+        synthesize=bool(args.get("synthesize")),
+    )
+    if not result.answers:
+        return _text("no providers configured", is_error=True)
+    return _text(render_battle_markdown(result))
+
+
+def _tool_recipe(pool: Pool, args: dict) -> dict:
+    name = args.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return _text("'name' is required", is_error=True)
+    try:
+        recipe = get_recipe(name.strip())
+    except UnknownRecipeError as exc:
+        return _text(f"{type(exc).__name__}: {exc}", is_error=True)
+    except RecipeError as exc:  # unknown schema / malformed JSON
+        return _text(f"{type(exc).__name__}: {exc}", is_error=True)
+
+    # Inline prompt (or `input`) is the recipe's `input` template variable.
+    # `validation_output` is optional and only used by recipes that declare it.
+    inline_prompt = args.get("input")
+    if inline_prompt is None:
+        inline_prompt = args.get("prompt") or ""
+    inline_prompt = inline_prompt if isinstance(inline_prompt, str) else ""
+    validation_output = args.get("validation_output") or ""
+    if not isinstance(validation_output, str):
+        validation_output = ""
+
+    path_arg = args.get("path")
+    if path_arg is not None and not isinstance(path_arg, str):
+        return _text("'path' must be a string", is_error=True)
+
+    try:
+        input_text, path_used = collect_recipe_input(
+            recipe,
+            prompt=inline_prompt,
+            stdin="",
+            input_file=None,
+            path=path_arg,
         )
-        try:
-            syn = pool.chat(
-                _messages(None, syn_prompt), routing="quality", max_tokens=max(max_tokens, 1024)
-            )
-            out.append(f"### synthesis — via {syn.provider_id}/{syn.model}\n{syn.text}")
-        except Exception as exc:  # noqa: BLE001
-            out.append(f"### synthesis (failed)\n{type(exc).__name__}: {exc}")
-    return _text("\n".join(out))
+    except MissingRecipeInputError as exc:
+        return _text(f"{type(exc).__name__}: {exc}", is_error=True)
+
+    variables = {
+        "input": input_text,
+        "path": path_used or "",
+        "validation_output": validation_output,
+    }
+
+    # Fail-fast: surface missing-variable errors before any fan-out work.
+    # run_recipe would raise the same MissingRecipeVariableError itself, but
+    # doing the render_prompt check here keeps that contract explicit at the
+    # MCP boundary and returns a clean tool error in the same code path.
+    from .recipes import render_prompt, run_recipe
+
+    try:
+        render_prompt(recipe, variables)
+    except MissingRecipeVariableError as exc:
+        return _text(f"{type(exc).__name__}: {exc}", is_error=True)
+
+    opinions = clamp_panel_count(args.get("opinions")) if args.get("opinions") is not None else 3
+    max_tokens_arg = args.get("max_tokens")
+    if isinstance(max_tokens_arg, int) and max_tokens_arg > 0:
+        max_tokens = max_tokens_arg
+    else:
+        max_tokens = 1024
+
+    try:
+        run = run_recipe(
+            pool,
+            recipe,
+            input_text=input_text,
+            path=path_used,
+            validation_output=validation_output,
+            opinions=opinions,
+            synthesize=bool(args.get("synthesize")),
+            max_tokens=max_tokens,
+        )
+    except MissingRecipeVariableError as exc:
+        return _text(f"{type(exc).__name__}: {exc}", is_error=True)
+    except Exception as exc:  # noqa: BLE001 - surface as a tool error, not a traceback
+        return _text(f"{type(exc).__name__}: {exc}", is_error=True)
+
+    header = f"{recipe.name} ({recipe.version}) — {recipe.description}"
+    footer = (
+        f"\n\n— recipe `{recipe.name}` (role: {recipe.role})"
+        if run.provider_id is None
+        else f"\n\n— via {run.provider_id}/{run.model}"
+    )
+    return _text(header + "\n\n" + run.output + footer)
+
+
+def _tool_roles(args: dict) -> dict:
+    name = args.get("name")
+    if isinstance(name, str) and name.strip():
+        from .roles import get_role
+
+        role = get_role(name.strip())
+        if role is None:
+            known = ", ".join(valid_roles())
+            return _text(f"unknown role '{name}'. Known: {known}", is_error=True)
+        extras: list[str] = []
+        if role.routing is not None:
+            extras.append(f"routing={role.routing}")
+        else:
+            extras.append("routing=pool default")
+        if role.max_tokens is not None:
+            extras.append(f"max_tokens={role.max_tokens}")
+        if role.temperature is not None:
+            extras.append(f"temperature={role.temperature}")
+        return _text(
+            f"{role.name} — {role.description} ({', '.join(extras)})"
+            + (f"\n  system_prefix: {role.system_prefix}" if role.system_prefix else "")
+        )
+    return _text(format_roles())
+
+
+def _tool_tailnet_info(args: dict) -> dict:
+    port = args.get("port")
+    if port is None:
+        port = 8080
+    if not isinstance(port, int) or not (1 <= port <= 65535):
+        return _text("'port' must be an integer in 1..65535", is_error=True)
+
+    status = detect_tailnet()
+    # Build a safe status line + setup hints without ever embedding the
+    # user's real bearer token. The hints block uses a `<proxy-key>`
+    # placeholder; the actual token is printed by the proxy itself.
+    placeholder_token = generate_session_token_simple(8)  # tiny, never real
+
+    lines: list[str] = []
+    if status.usable:
+        base = safe_base_url(status.ipv4 or "127.0.0.1", port)
+        lines.append(f"Tailnet: {status.state} ({status.ipv4})")
+        lines.append("")
+        lines.append("Serve on this host:")
+        lines.append(f"  freellmpool proxy --host {status.ipv4} --port {port}")
+        lines.append("")
+        lines.append("Client setup on the other Tailnet machine:")
+        lines.append(format_setup_hints(base_url=base, token=placeholder_token, token_label="<proxy-key>"))
+        lines.append("")
+        lines.append(
+            "(Token placeholder only — freellmpool proxy prints the real token "
+            "to its own console when it boots; do not paste provider keys here.)"
+        )
+    else:
+        # Degraded path: CLI missing / logged out / no IPv4 / malformed.
+        lines.append(f"Tailnet: {status.state}")
+        if status.detail:
+            lines.append(f"  detail: {status.detail}")
+        lines.append("")
+        lines.append(
+            "freellmpool will still serve on loopback for local-only use. "
+            "Install / log into Tailscale to share the proxy across your Tailnet."
+        )
+    return _text("\n".join(lines))
+
+
+def _tool_quota_wise(pool: Pool) -> dict:
+    snapshot = pool.quota.snapshot()
+    active = current_mode(pool.env) == "wise"
+    body = render_quota_wise_status(pool.providers, snapshot, active=active)
+
+    # Refuse to surface any wording that hints at account rotation / bypass /
+    # automatic paid fallback. The advisory lines below are the only acceptable
+    # set per the task contract.
+    advice = [
+        "",
+        "advice (local counters only):",
+        "  - if remaining is 0 on every declared-RPD provider, wait for the UTC reset",
+        "  - lower fan-out (smaller panel / lower --max-tokens / smaller --max-models)",
+        "  - if you really need more throughput, make an explicit paid choice outside the default flow",
+        "",
+        "this tool only reports local counters and never suggests workarounds",
+        "such as switching accounts, evading provider limits, or implicit",
+        "fallback to paid tiers. Counts are advisory only.",
+    ]
+    return _text(body + "\n" + "\n".join(advice))
 
 
 def _tool_tokenmax(pool: Pool, args: dict, notify=None) -> dict:
@@ -444,7 +819,7 @@ def _quota_summary(pool: Pool) -> str:
         "",
         f"session: {s.get('requests', 0)} requests, {s.get('cache_hits', 0)} cache hits, "
         f"{s.get('completion_tokens', 0)} output tokens",
-        f"cost avoided vs Claude Opus 4.8: ~${usd_saved(s.get('prompt_tokens'), s.get('completion_tokens')):.4f}",
+        f"estimated cost avoided vs Claude Opus 4.8: ~${usd_saved(s.get('prompt_tokens'), s.get('completion_tokens')):.4f}",
     ]
     return "\n".join(lines)
 
@@ -460,9 +835,9 @@ def _lifetime_summary(pool: Pool) -> str:
         f"  requests:   {life.get('requests', 0):,}",
         f"  tokens:     {tokens:,}",
         f"  cache hits: {life.get('cache_hits', 0):,}",
-        f"  cost avoided vs Claude Opus 4.8: ~${saved:,.2f}"
+        f"  estimated cost avoided vs Claude Opus 4.8: ~${saved:,.2f}"
         if saved >= 1
-        else f"  cost avoided vs Claude Opus 4.8: ~${saved:.4f}",
+        else f"  estimated cost avoided vs Claude Opus 4.8: ~${saved:.4f}",
     ]
     if life.get("first_seen"):
         lines.append(f"  since: {life['first_seen']}")

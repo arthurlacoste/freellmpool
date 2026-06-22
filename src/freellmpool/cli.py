@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 from . import __version__
 from .config import (
@@ -22,8 +23,23 @@ from .config import (
     split_provider_model,
 )
 from .errors import AllProvidersExhausted, NoProvidersConfigured
+from .mode import (
+    WISE_DEFAULT_MAX_TOKENS,
+    WISE_DEFAULT_ROUTING,
+    WISE_EXPENSIVE_MODEL_THRESHOLD,
+    WISE_TOKENMAX_DEFAULT_MODELS,
+    confirm_expensive_operation,
+    declared_quota_exhausted,
+    declared_targets,
+    is_wise_enabled,
+    render_quota_wise_status,
+    targets_with_declared_headroom,
+)
+from .panel import render_panel_markdown, run_panel
 from .quota import QuotaStore
+from .roles import format_roles, get_role
 from .router import Pool
+from .routing_modes import PUBLIC_ROUTING_ALIASES, routing_override
 from .savings import format_saved
 
 
@@ -43,6 +59,15 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print("freellmpool: no prompt provided (pass text or pipe stdin)", file=sys.stderr)
         return 3
 
+    role = get_role(args.role) if args.role else None
+    if args.role and role is None:
+        print(
+            f"freellmpool: unknown role '{args.role}'\n",
+            file=sys.stderr,
+        )
+        print(format_roles(), file=sys.stderr)
+        return 2
+
     # Support `--model provider/model` as a shorthand for picking an exact
     # model on an exact provider (in addition to `--providers` + bare `--model`).
     # Common OpenAI/Anthropic names (gpt-4o-mini, ...) resolve to a free target.
@@ -58,19 +83,90 @@ def cmd_ask(args: argparse.Namespace) -> int:
             provider_filter, model_filter = prov, mdl
 
     system = args.system
+    if system is None and role is not None and role.system_prefix is not None:
+        system = role.system_prefix
     if args.json:
         json_rule = "Respond with a single valid JSON value and nothing else — no prose, no markdown fences."
         system = f"{system}\n{json_rule}" if system else json_rule
 
     pool = Pool.from_default_config()
+    pool_env = getattr(pool, "env", os.environ)
+    mode_settings = settings(pool_env)
+    has_routing_config = bool(pool_env.get("FREELLMPOOL_ROUTING") or mode_settings.get("routing"))
+    wise = is_wise_enabled(pool_env, override=args.mode, settings=mode_settings)
+    max_tokens = args.max_tokens
+    if max_tokens is None:
+        max_tokens = (
+            role.max_tokens
+            if (role is not None and role.max_tokens is not None)
+            else (WISE_DEFAULT_MAX_TOKENS if wise else 1024)
+        )
+
+    temperature = args.temperature
+    if temperature is None:
+        temperature = role.temperature if (role is not None and role.temperature is not None) else 0.0
+
+    routing = routing_override(args.routing) if args.routing is not None else None
+    if args.routing is None and routing is None and role is not None and role.routing is not None:
+        routing = role.routing
+    if args.routing is None and routing is None and role is None and wise:
+        routing = WISE_DEFAULT_ROUTING
+    if args.routing is None and routing is None and role is None and args.mode == "normal":
+        if not has_routing_config:
+            routing = "fair"
+
+    second_opinion = bool(args.second_opinion or (role is not None and role.name == "second-opinion"))
+    if second_opinion:
+        if args.json:
+            print("freellmpool: --json is not supported with --second-opinion", file=sys.stderr)
+            return 2
+        result = run_panel(
+            pool,
+            prompt=prompt,
+            system=system,
+            n=args.opinions,
+            routing=routing or "quality",
+            model=model_filter,
+            providers=provider_filter,
+            max_tokens=max_tokens,
+            timeout=args.timeout,
+            synthesize=args.synthesize,
+        )
+        if not result.answers:
+            print("freellmpool: no providers configured", file=sys.stderr)
+            return 3
+        print(render_panel_markdown(result, title="freellmpool second opinion panel"))
+        return 0 if result.successful_answers else 4
+
+    if wise and not args.model and not args.providers:
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        targets = pool.rank_targets(messages, routing=routing, model=model_filter, providers=provider_filter)
+        snapshot = pool.quota.snapshot()
+        if declared_quota_exhausted(targets, snapshot):
+            print(
+                "freellmpool: declared local free quota is exhausted in wise mode; "
+                "rerun with an explicit --model or --providers if you want to override.",
+                file=sys.stderr,
+            )
+            return 4
+        headroom_targets = targets_with_declared_headroom(targets, snapshot)
+        if headroom_targets:
+            target = headroom_targets[0]
+            provider_filter = [target.provider.id]
+            model_filter = target.model
     try:
         reply = pool.ask(
             prompt,
             system=system,
             model=model_filter,
             providers=provider_filter,
-            max_tokens=args.max_tokens,
-            temperature=args.temperature,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout=args.timeout,
+            routing=routing,
         )
     except NoProvidersConfigured as exc:
         print(f"freellmpool: {exc}", file=sys.stderr)
@@ -92,11 +188,16 @@ def cmd_ask(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_roles(args: argparse.Namespace) -> int:
+    print(format_roles())
+    return 0
+
+
 def cmd_tokenmax(args: argparse.Namespace) -> int:
     """🌈 Blast one prompt to EVERY model across EVERY provider, then (by default)
     synthesize the swarm into one answer. The genuine rainbow animation runs on a
     real terminal."""
-    from .tokenmax import RAINBOW_BANNER, RainbowThrob, fan_out, select_targets
+    from .tokenmax import HARD_CAP, RAINBOW_BANNER, RainbowThrob, fan_out, select_targets
 
     stdin = _read_stdin()
     prompt = args.prompt or ""
@@ -120,14 +221,63 @@ def cmd_tokenmax(args: argparse.Namespace) -> int:
         msgs.append({"role": "system", "content": args.system})
     msgs.append({"role": "user", "content": prompt})
 
-    picks, n_providers = select_targets(pool, msgs, args.max_models)
+    pool_env = getattr(pool, "env", os.environ)
+    mode_settings = settings(pool_env)
+    has_routing_config = bool(pool_env.get("FREELLMPOOL_ROUTING") or mode_settings.get("routing"))
+    wise = is_wise_enabled(pool_env, override=args.mode, settings=mode_settings)
+    routing_for_mode = None
+    if not has_routing_config:
+        if wise:
+            routing_for_mode = WISE_DEFAULT_ROUTING
+        elif args.mode == "normal":
+            routing_for_mode = "fair"
+    wise_has_declared_targets = False
+    if wise:
+        if routing_for_mode is None:
+            candidates, _n_providers = select_targets(pool, msgs, None)
+        else:
+            candidates, _n_providers = select_targets(pool, msgs, None, routing=routing_for_mode)
+        wise_has_declared_targets = bool(declared_targets(candidates))
+        snapshot = pool.quota.snapshot()
+        if declared_quota_exhausted(candidates, snapshot):
+            print(
+                "freellmpool: declared local free quota is exhausted in wise mode; "
+                "tokenmax will not fan out to unknown or paid fallback targets implicitly.",
+                file=sys.stderr,
+            )
+            return 4
+        headroom_targets = targets_with_declared_headroom(candidates, snapshot)
+        if headroom_targets:
+            candidates = headroom_targets
+        max_models = args.max_models
+        if max_models is None:
+            max_models = WISE_TOKENMAX_DEFAULT_MODELS
+        limit = max(1, min(HARD_CAP, int(max_models)))
+        picks = candidates[:limit]
+        n_providers = len({target.provider.id for target in picks})
+    else:
+        if routing_for_mode is None:
+            picks, n_providers = select_targets(pool, msgs, args.max_models)
+        else:
+            picks, n_providers = select_targets(pool, msgs, args.max_models, routing=routing_for_mode)
     if not picks:
         print("freellmpool: no models available to blast", file=sys.stderr)
         return 3
+    if wise:
+        if len(picks) > WISE_EXPENSIVE_MODEL_THRESHOLD:
+            label = f"tokenmax fan-out to {len(picks)} models across {n_providers} providers"
+            if not confirm_expensive_operation(label, assume_yes=args.yes):
+                return 4
 
     label = f"TOKENMAXXING {len(picks)} models across {n_providers} providers"
     with RainbowThrob(label):
-        answered, failed = fan_out(pool, msgs, picks, max_tokens=args.max_tokens)
+        answered, failed = fan_out(
+            pool,
+            msgs,
+            picks,
+            max_tokens=args.max_tokens,
+            timeout=args.timeout,
+        )
 
     print(
         f"{RAINBOW_BANNER} TOKENMAX — {len(picks)} models / {n_providers} providers · "
@@ -147,8 +297,28 @@ def cmd_tokenmax(args: argparse.Namespace) -> int:
             f"Question: {prompt}\n\n{blob}"
         )
         try:
+            syn_model = None
+            syn_providers = None
+            if wise:
+                syn_messages = [{"role": "user", "content": syn_prompt}]
+                syn_targets = pool.rank_targets(syn_messages, routing="quality")
+                syn_headroom = targets_with_declared_headroom(syn_targets, pool.quota.snapshot())
+                if syn_headroom:
+                    syn_model = syn_headroom[0].model
+                    syn_providers = [syn_headroom[0].provider.id]
+                elif wise_has_declared_targets:
+                    print(
+                        "(synthesis skipped: declared local free quota exhausted in wise mode)",
+                        file=sys.stderr,
+                    )
+                    return 0
             syn = pool.chat(
-                [{"role": "user", "content": syn_prompt}], routing="quality", max_tokens=1024
+                [{"role": "user", "content": syn_prompt}],
+                model=syn_model,
+                providers=syn_providers,
+                routing="quality",
+                max_tokens=1024,
+                timeout=args.timeout,
             )
             print(f"{RAINBOW_BANNER} SYNTHESIS — via {syn.provider_id}/{syn.model}\n{syn.text}")
         except Exception as exc:  # noqa: BLE001 — synthesis is a bonus, never fatal
@@ -264,6 +434,19 @@ def cmd_quota(args: argparse.Namespace) -> int:
     print("Today's usage (UTC):")
     for key, count in sorted(snap.items(), key=lambda kv: -kv[1]):
         print(f"  {count:>6}  {key}")
+    return 0
+
+
+def cmd_quota_wise_status(args: argparse.Namespace) -> int:
+    pool = Pool.from_default_config()
+    mode_settings = settings(pool.env)
+    print(
+        render_quota_wise_status(
+            pool.providers,
+            pool.quota.snapshot(),
+            active=is_wise_enabled(pool.env, settings=mode_settings),
+        )
+    )
     return 0
 
 
@@ -755,6 +938,59 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def cmd_proxy(args: argparse.Namespace) -> int:
     from .proxy import serve  # lazy: avoids http.server import on other paths
+    from .tailnet import (
+        UnsafeBindError,
+        assert_bind_safe,
+        format_setup_hints,
+        is_loopback_host,
+        safe_base_url,
+    )
+
+    # `--tailnet` is a Tailnet-safe alias for `freellmpool tailnet serve`.
+    # It runs the same safety logic but keeps the proxy's familiar verb
+    # for users who already have `freellmpool proxy` muscle memory.
+    if getattr(args, "tailnet", False):
+        return _run_tailnet_serve(
+            port=args.port,
+            api_key=args.api_key,
+            allow_lan=getattr(args, "allow_lan", False),
+            allow_no_auth=getattr(args, "allow_no_auth", False),
+            dry_run=False,
+        )
+
+    proxy_key = (
+        args.api_key
+        or os.environ.get("FREELLMPOOL_PROXY_KEY")
+        or settings().get("proxy_key")
+        or None
+    )
+
+    # Enforce the WU-001 safety rules. Loopback binds always pass and
+    # keep the legacy "warn-only" behavior below; non-loopback binds
+    # require either an explicit --allow-lan + auth (or --allow-no-auth
+    # as a documented escape hatch) or they are refused outright.
+    try:
+        assert_bind_safe(
+            host=args.host,
+            api_key=proxy_key,
+            allow_lan=getattr(args, "allow_lan", False),
+            allow_no_auth=getattr(args, "allow_no_auth", False),
+        )
+    except UnsafeBindError as exc:
+        print(f"freellmpool: {exc}", file=sys.stderr)
+        return 2
+
+    loopback = is_loopback_host(args.host)
+    if not loopback and not proxy_key:
+        # Loopback-warn path is now unreachable in practice (assert_bind_safe
+        # raises for non-loopback w/o auth unless allow-no-auth is set), but
+        # kept as a defensive backstop in case the helper is bypassed.
+        print(
+            f"freellmpool: WARNING — binding to {args.host} (not loopback) with NO proxy key "
+            "exposes all your configured providers to the network. Set --api-key or "
+            "FREELLMPOOL_PROXY_KEY, or bind to 127.0.0.1.",
+            file=sys.stderr,
+        )
 
     pool = Pool.from_default_config()
     if not pool.providers:
@@ -765,30 +1001,17 @@ def cmd_proxy(args: argparse.Namespace) -> int:
         )
         return 3
 
-    proxy_key = (
-        args.api_key
-        or os.environ.get("FREELLMPOOL_PROXY_KEY")
-        or settings().get("proxy_key")
-        or None
-    )
-    loopback = args.host in {"127.0.0.1", "localhost", "::1"}
-    if not loopback and not proxy_key:
-        print(
-            f"freellmpool: WARNING — binding to {args.host} (not loopback) with NO proxy key "
-            "exposes all your configured providers to the network. Set --api-key or "
-            "FREELLMPOOL_PROXY_KEY, or bind to 127.0.0.1.",
-            file=sys.stderr,
-        )
-
     httpd = serve(pool, host=args.host, port=args.port, api_key=proxy_key)
     n_models = sum(len(p.models) for p in pool.providers)
     auth_note = "  auth: Bearer key required\n" if proxy_key else ""
+    base_url = safe_base_url(args.host, args.port)
     print(
-        f"freellmpool proxy on http://{args.host}:{args.port}/v1  "
+        f"freellmpool proxy on {base_url}/v1  "
         f"({len(pool.providers)} providers, {n_models} models)\n"
         f"{auth_note}"
-        f"  point your OpenAI client at:  OPENAI_BASE_URL=http://{args.host}:{args.port}/v1\n"
-        f"  dashboard:  http://{args.host}:{args.port}/dashboard\n"
+        f"  point your OpenAI client at:  OPENAI_BASE_URL={base_url}/v1\n"
+        f"  dashboard:  {base_url}/dashboard\n"
+        f"{format_setup_hints(base_url=base_url, token=proxy_key)}"
         "  press Ctrl-C to stop",
         file=sys.stderr,
     )
@@ -805,6 +1028,721 @@ def cmd_proxy(args: argparse.Namespace) -> int:
         pool.quota.flush()
         httpd.server_close()
     return 0
+
+
+def _run_tailnet_serve(
+    *,
+    port: int,
+    api_key: str | None,
+    allow_lan: bool,
+    allow_no_auth: bool,
+    dry_run: bool,
+) -> int:
+    """Shared body for ``freellmpool tailnet serve`` and ``proxy --tailnet``.
+
+    Detects the local Tailnet IPv4, picks / validates the bind target,
+    requires auth (or generates a session token), and starts the proxy
+    on the Tailnet address. The two entry points only differ in their
+    flag set; everything else lives here so the safety logic stays in
+    one place.
+    """
+    from .proxy import serve  # lazy: avoids http.server import on other paths
+    from .tailnet import (
+        STATE_CLI_MISSING,
+        STATE_LOGGED_OUT,
+        STATE_MALFORMED,
+        STATE_NO_IPV4,
+        UnsafeBindError,
+        assert_bind_safe,
+        detect_tailnet,
+        format_setup_hints,
+        generate_session_token,
+        safe_base_url,
+    )
+
+    status = detect_tailnet()
+    if not status.usable:
+        # Map tagged states to actionable error messages. We never echo
+        # subprocess stderr (it can include MagicDNS hostnames and other
+        # text the user may not want echoed back), and we never print
+        # provider API keys.
+        if status.state == STATE_CLI_MISSING:
+            print(
+                "freellmpool: cannot start Tailnet serving — "
+                f"{status.detail}",
+                file=sys.stderr,
+            )
+        elif status.state == STATE_LOGGED_OUT:
+            print(
+                "freellmpool: cannot start Tailnet serving — "
+                f"{status.detail}",
+                file=sys.stderr,
+            )
+        elif status.state == STATE_NO_IPV4:
+            print(
+                "freellmpool: cannot start Tailnet serving — "
+                f"{status.detail}",
+                file=sys.stderr,
+            )
+        elif status.state == STATE_MALFORMED:
+            print(
+                "freellmpool: cannot start Tailnet serving — "
+                f"{status.detail}",
+                file=sys.stderr,
+            )
+        else:  # pragma: no cover - defensive
+            print(
+                "freellmpool: cannot start Tailnet serving — "
+                f"unknown Tailscale state: {status.state}",
+                file=sys.stderr,
+            )
+        print(
+            "\nHint: `freellmpool proxy` on loopback (127.0.0.1) still works "
+            "without Tailscale.",
+            file=sys.stderr,
+        )
+        return 3
+
+    # We have a validated 100.x address. Resolve the auth key: explicit
+    # --api-key > FREELLMPOOL_PROXY_KEY > config proxy_key > generate one.
+    explicit_key = (
+        api_key
+        or os.environ.get("FREELLMPOOL_PROXY_KEY")
+        or settings().get("proxy_key")
+        or None
+    )
+
+    bind_host = status.ipv4  # type: ignore[assignment]  # safe: usable=True
+
+    # Non-Tailnet LAN binds need --allow-lan; even Tailnet binds need
+    # auth unless --allow-no-auth is passed. assert_bind_safe enforces
+    # the WU-001 spec rules.
+    if explicit_key is None and not allow_no_auth:
+        # Default-on safety: generate a session token so a Tailnet serve
+        # never silently starts unauthenticated. The token is printed
+        # once and never persisted.
+        explicit_key = generate_session_token()
+        generated_session_token = True
+    else:
+        generated_session_token = False
+
+    try:
+        assert_bind_safe(
+            host=bind_host,
+            api_key=explicit_key,
+            allow_lan=allow_lan,
+            allow_no_auth=allow_no_auth,
+        )
+    except UnsafeBindError as exc:
+        print(f"freellmpool: {exc}", file=sys.stderr)
+        return 2
+
+    base_url = safe_base_url(bind_host, port)
+    if generated_session_token:
+        token_label = explicit_key if not dry_run else "<session-token-printed-on-real-run>"
+    elif explicit_key:
+        token_label = "<your-proxy-key>"
+    else:
+        token_label = None
+    setup_block = format_setup_hints(
+        base_url=base_url,
+        token=explicit_key,
+        token_label=token_label,
+    )
+    auth_status = "Bearer key required (token generated for this session)" if generated_session_token else (
+        "Bearer key required (using --api-key / FREELLMPOOL_PROXY_KEY)"
+        if explicit_key
+        else "no auth (--allow-no-auth)"
+    )
+
+    if dry_run:
+        # Print the exact bind address, auth status, dashboard URL and
+        # client env vars — but never start the server and never print
+        # the actual token (the plan asks for a "token marker"; the
+        # real token is only shown for live runs, never in --dry-run,
+        # so a dry-run can be safely pasted into a chat / issue).
+        marker = token_label or "<none>"
+        print(
+            f"freellmpool tailnet serve (dry run)\n"
+            f"  bind host      : {bind_host}\n"
+            f"  bind URL       : {base_url}/v1\n"
+            f"  dashboard      : {base_url}/dashboard\n"
+            f"  auth status    : {auth_status}\n"
+            f"  token marker   : {marker}\n"
+            f"\n{setup_block}",
+            file=sys.stderr,
+        )
+        return 0
+
+    pool = Pool.from_default_config()
+    if not pool.providers:
+        print(
+            "freellmpool: no providers configured; set at least one API key "
+            "(see .env.example) before starting the proxy.",
+            file=sys.stderr,
+        )
+        return 3
+
+    if generated_session_token:
+        # Real-run banner: this is the ONE place the session token
+        # is shown. Make it impossible to miss, and never include
+        # provider keys in the same output.
+        print(
+            f"\nfreellmpool: generated a one-session proxy key:\n"
+            f"  {explicit_key}\n"
+            f"  (use it as `Authorization: Bearer {explicit_key}` from your "
+            f"client; it is not saved anywhere)\n",
+            file=sys.stderr,
+        )
+
+    httpd = serve(pool, host=bind_host, port=port, api_key=explicit_key)
+    n_models = sum(len(p.models) for p in pool.providers)
+    print(
+        f"freellmpool tailnet serve on {base_url}/v1  "
+        f"({len(pool.providers)} providers, {n_models} models)\n"
+        f"  auth status    : {auth_status}\n"
+        f"  bind address   : {bind_host} (Tailnet IPv4)\n"
+        f"\n{setup_block}"
+        "  press Ctrl-C to stop",
+        file=sys.stderr,
+    )
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        s = pool.stats_snapshot()
+        saved = format_saved(s["prompt_tokens"], s["completion_tokens"])
+        print(
+            f"\nfreellmpool: shutting down — served {s['requests']} requests · {saved}",
+            file=sys.stderr,
+        )
+    finally:
+        pool.quota.flush()
+        httpd.server_close()
+    return 0
+
+
+def cmd_tailnet_status(args: argparse.Namespace) -> int:
+    from .tailnet import (
+        STATE_CLI_MISSING,
+        STATE_LOGGED_OUT,
+        STATE_MALFORMED,
+        STATE_NO_IPV4,
+        STATE_USABLE,
+        detect_tailnet,
+    )
+
+    status = detect_tailnet()
+    if status.state == STATE_USABLE:
+        print(
+            f"freellmpool tailnet: usable\n"
+            f"  IPv4           : {status.ipv4}\n"
+            f"  next           : `freellmpool tailnet serve --port {args.port}` "
+            "(auth is auto-generated if you don't pass --api-key)",
+            file=sys.stderr,
+        )
+        return 0
+
+    label = {
+        STATE_CLI_MISSING: "tailscale CLI missing",
+        STATE_LOGGED_OUT: "tailscale logged out / daemon unreachable",
+        STATE_NO_IPV4: "no IPv4 from tailscale",
+        STATE_MALFORMED: "malformed tailscale output",
+    }.get(status.state, status.state)
+    print(
+        f"freellmpool tailnet: {label}\n"
+        f"  reason         : {status.detail}\n"
+        f"  fallback       : `freellmpool proxy` on 127.0.0.1 still works.",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def cmd_tailnet_serve(args: argparse.Namespace) -> int:
+    return _run_tailnet_serve(
+        port=args.port,
+        api_key=args.api_key,
+        allow_lan=args.allow_lan,
+        allow_no_auth=args.allow_no_auth,
+        dry_run=args.dry_run,
+    )
+
+
+def cmd_tailnet_connect(args: argparse.Namespace) -> int:
+    """Print the client setup commands for a remote tailnet proxy.
+
+    ``host`` may be a 100.x Tailnet IPv4 or a MagicDNS hostname; we do
+    not resolve it (no DNS / no network). The user pastes the printed
+    exports into the client machine.
+    """
+    from .tailnet import format_setup_hints, safe_base_url
+
+    host = args.host
+    if not host:
+        print("freellmpool: tailnet connect needs a tailnet host or IP", file=sys.stderr)
+        return 2
+
+    base = safe_base_url(host, args.port)
+    print(
+        f"freellmpool tailnet connect: {host}:{args.port}\n"
+        f"{format_setup_hints(base_url=base, token='<proxy-key>', token_label='<proxy-key-from-server>')}"
+        "\n  If the server was started with --allow-no-auth, any placeholder API key works.",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    from .init_wizard import (
+        detect_environment,
+        interactive_choice_to_plan,
+        render_detect_only,
+        render_interactive_intro,
+        render_setup_plan,
+        report_to_json,
+    )
+
+    report = detect_environment()
+    if args.json:
+        print(report_to_json(report))
+        return 0
+
+    if not args.yes and not args.agent and not args.tailnet:
+        print(render_interactive_intro(report))
+        try:
+            choice = input("Setup path: ")
+        except EOFError:
+            choice = ""
+        plan = interactive_choice_to_plan(choice)
+        if plan is None:
+            return 0
+        agent, tailnet = plan
+        print(render_setup_plan(report, agent=agent, tailnet=tailnet, port=args.port))
+        return 0
+
+    if args.yes and not args.agent and not args.tailnet:
+        print(render_detect_only(report, port=args.port))
+        return 0
+
+    try:
+        print(
+            render_setup_plan(
+                report,
+                agent=args.agent,
+                tailnet=args.tailnet,
+                port=args.port,
+                force=args.force,
+            )
+        )
+    except ValueError as exc:
+        print(f"freellmpool: {exc}", file=sys.stderr)
+        return 3
+    return 0
+
+
+def cmd_battle(args: argparse.Namespace) -> int:
+    from .battle import render_battle_markdown, run_battle
+
+    stdin = _read_stdin()
+    prompt = args.prompt or ""
+    if stdin:
+        prompt = f"{stdin}\n\n{prompt}".strip() if prompt else stdin
+    if not prompt.strip():
+        print("freellmpool: no prompt provided (pass text or pipe stdin)", file=sys.stderr)
+        return 3
+
+    pool = Pool.from_default_config()
+    result = run_battle(
+        pool,
+        prompt,
+        n=args.models,
+        max_tokens=args.max_tokens,
+        timeout=args.timeout,
+        routing=routing_override(args.routing) if args.routing is not None else "quality",
+        synthesize=args.synthesize,
+    )
+    if not result.answers:
+        print("freellmpool: no providers configured", file=sys.stderr)
+        return 3
+    if result.truncated:
+        print(
+            f"freellmpool: battle ran {len(result.answers)} model(s) "
+            f"after requesting {result.requested_count}",
+            file=sys.stderr,
+        )
+    provider_count = len({answer.provider_id for answer in result.answers})
+    if provider_count < 3:
+        print(
+            f"freellmpool: only {provider_count} configured provider(s) available for battle",
+            file=sys.stderr,
+        )
+    print(render_battle_markdown(result))
+    return 0 if result.successful_answers else 4
+
+
+def cmd_playground(args: argparse.Namespace) -> int:
+    import urllib.error
+    import urllib.request
+
+    base = f"http://127.0.0.1:{args.port}"
+    proxy_key = os.environ.get("FREELLMPOOL_PROXY_KEY") or settings().get("proxy_key")
+    try:
+        headers = {"Authorization": f"Bearer {proxy_key}"} if proxy_key else {}
+        req = urllib.request.Request(f"{base}/playground", headers=headers)
+        with urllib.request.urlopen(req, timeout=1.5) as resp:  # noqa: S310
+            if resp.status == 200 and "text/html" in resp.headers.get("Content-Type", ""):
+                print(f"{base}/playground")
+                return 0
+    except (OSError, urllib.error.URLError):
+        pass
+    print(
+        f"freellmpool playground: no proxy reachable on {base}. "
+        f"Start one with `freellmpool proxy --port {args.port}`, then open {base}/playground.",
+        file=sys.stderr,
+    )
+    return 3
+
+
+def cmd_recipe_list(args: argparse.Namespace) -> int:
+    import json
+
+    from .recipes import list_recipes, list_recipes_json
+
+    if args.json:
+        print(json.dumps(list_recipes_json(), indent=2, sort_keys=True))
+        return 0
+    for recipe in list_recipes():
+        print(f"{recipe.name}\t{recipe.description}")
+    return 0
+
+
+def cmd_recipe_show(args: argparse.Namespace) -> int:
+    import json
+
+    from .recipes import RecipeError, get_recipe, render_recipe
+
+    try:
+        recipe = get_recipe(args.name)
+    except RecipeError as exc:
+        print(f"freellmpool recipe: {exc}", file=sys.stderr)
+        return 3
+    if args.json:
+        print(json.dumps(recipe.summary(), indent=2, sort_keys=True))
+    else:
+        print(render_recipe(recipe))
+    return 0
+
+
+def cmd_recipe_run(args: argparse.Namespace) -> int:
+    from .recipes import (
+        RecipeError,
+        collect_recipe_input,
+        get_recipe,
+        run_recipe,
+    )
+
+    try:
+        recipe = get_recipe(args.name)
+        stdin = _read_stdin()
+        input_text, path = collect_recipe_input(
+            recipe,
+            prompt=args.prompt or "",
+            stdin=stdin,
+            input_file=args.input,
+            path=args.path,
+        )
+        validation_output = args.validation_output
+        if args.validation_output_file:
+            validation_output = Path(args.validation_output_file).read_text(encoding="utf-8")
+        result = run_recipe(
+            Pool.from_default_config(),
+            recipe,
+            input_text=input_text,
+            path=path,
+            validation_output=validation_output,
+            opinions=args.opinions,
+            synthesize=args.synthesize,
+            max_tokens=args.max_tokens,
+            timeout=args.timeout,
+        )
+    except (RecipeError, NoProvidersConfigured, AllProvidersExhausted) as exc:
+        print(f"freellmpool recipe: {exc}", file=sys.stderr)
+        return 3
+    except OSError as exc:
+        print(f"freellmpool recipe: {exc}", file=sys.stderr)
+        return 3
+    print(result.output)
+    return 0
+
+
+def cmd_jobs_add(args: argparse.Namespace) -> int:
+    """Queue a recipe or ask job to the local JSONL store."""
+    from .jobs import JOB_KIND_ASK, JOB_KIND_RECIPE, JobError, JobSpec, JobStore
+
+    try:
+        if args.recipe:
+            spec_payload: dict[str, object] = {
+                "kind": JOB_KIND_RECIPE,
+                "recipe": args.recipe,
+                "prompt": args.prompt or "",
+            }
+            if args.input:
+                spec_payload["input"] = args.input
+            if args.path:
+                spec_payload["path"] = args.path
+            if args.validation_output is not None:
+                spec_payload["validation_output"] = args.validation_output
+            if args.validation_output_file:
+                spec_payload["validation_output_file"] = args.validation_output_file
+            spec_payload["opinions"] = args.opinions
+            spec_payload["synthesize"] = bool(args.synthesize)
+            if args.max_tokens is not None:
+                spec_payload["max_tokens"] = args.max_tokens
+            spec_payload["timeout"] = args.timeout
+            dedupe = args.recipe if args.dedupe else None
+        elif args.role or args.prompt:
+            if args.role and not args.prompt:
+                print(
+                    "freellmpool jobs add: --role requires a prompt",
+                    file=sys.stderr,
+                )
+                return 2
+            spec_payload = {
+                "kind": JOB_KIND_ASK,
+                "role": args.role,
+                "prompt": args.prompt or "",
+            }
+            if args.max_tokens is not None:
+                spec_payload["max_tokens"] = args.max_tokens
+            spec_payload["timeout"] = args.timeout
+            dedupe = args.role if args.dedupe else None
+        else:
+            print(
+                "freellmpool jobs add: provide --recipe <name> [prompt] or --role <role> with a prompt",
+                file=sys.stderr,
+            )
+            return 2
+        store = JobStore()
+        kind = str(spec_payload["kind"])
+        job = store.add(JobSpec(kind=kind, payload=spec_payload, dedupe_key=dedupe))
+    except JobError as exc:
+        print(f"freellmpool jobs add: {exc}", file=sys.stderr)
+        return 3
+
+    print(job.job_id)
+    return 0
+
+
+def cmd_jobs_list(args: argparse.Namespace) -> int:
+    from .jobs import JobStore, render_jobs
+
+    store = JobStore()
+    if args.status:
+        statuses = {s.strip() for s in args.status.split(",") if s.strip()}
+        jobs = [job for job in store.jobs() if job.status in statuses]
+    else:
+        jobs = store.jobs()
+    print(render_jobs(jobs))
+    return 0
+
+
+def cmd_jobs_run(args: argparse.Namespace) -> int:
+    """Process pending queued jobs in the foreground."""
+    from .jobs import (
+        JobError,
+        JobStore,
+        render_run_plan,
+        render_run_summary,
+        run_pending_jobs,
+    )
+
+    # Validate --limit consistently for dry-run and real runs so a
+    # --limit < 1 fails the same way regardless of which path was taken.
+    # The real-run path would also raise the same error, but validating
+    # here lets us short-circuit before reading the store.
+    if args.limit is not None and args.limit < 1:
+        print("freellmpool jobs run: --limit must be >= 1", file=sys.stderr)
+        return 3
+
+    store = JobStore()
+    if args.dry_run:
+        # Dry-run prints the same limited execution subset a real limited
+        # run would process, but it never mutates the queue. We honour
+        # ``--max-failures`` shape-wise too: --max-failures N still
+        # affects the real runner, not the dry-run plan renderer, so we
+        # do not pass it here.
+        try:
+            plan = render_run_plan(store.pending(), limit=args.limit)
+        except JobError as exc:
+            print(f"freellmpool jobs run: {exc}", file=sys.stderr)
+            return 3
+        print(plan)
+        return 0
+    try:
+        outcome = run_pending_jobs(
+            store,
+            dry_run=False,
+            max_failures=args.max_failures,
+            limit=args.limit,
+        )
+    except JobError as exc:
+        print(f"freellmpool jobs run: {exc}", file=sys.stderr)
+        return 3
+
+    print(render_run_summary(outcome))
+    if outcome.halted_by_max_failures:
+        return 5
+    if outcome.had_failures:
+        return 4
+    return 0
+
+
+def cmd_jobs_watch(args: argparse.Namespace) -> int:
+    """Render the replayed job queue once (refresh mode)."""
+    from .jobs import JobStore, render_jobs
+
+    store = JobStore()
+    print(render_jobs(store.jobs()))
+    return 0
+
+
+def cmd_jobs_cancel(args: argparse.Namespace) -> int:
+    from .jobs import JobError, JobStore, UnknownJobError
+
+    store = JobStore()
+    try:
+        job = store.cancel(args.job_id)
+    except UnknownJobError as exc:
+        print(f"freellmpool jobs cancel: {exc}", file=sys.stderr)
+        return 3
+    except JobError as exc:
+        print(f"freellmpool jobs cancel: {exc}", file=sys.stderr)
+        return 3
+
+    print(f"{job.job_id} {job.status}")
+    return 0
+
+
+def cmd_report_list(args: argparse.Namespace) -> int:
+    from .artifacts import RunRecordStore
+    from .reports import render_record_list
+
+    store = RunRecordStore()
+    print(render_record_list(store.recent(limit=args.limit)))
+    return 0
+
+
+def cmd_report_last(args: argparse.Namespace) -> int:
+    from .artifacts import RunRecordStore
+    from .reports import open_report_path, render_html_report, render_markdown_report, write_report
+
+    store = RunRecordStore()
+    record = store.last()
+    if record is None:
+        print("freellmpool report: no run records found", file=sys.stderr)
+        return 3
+    fmt = "html" if args.html else "md"
+    path = write_report(record, fmt, store=store)
+    if args.open:
+        open_report_path(path)
+        return 0
+    if args.path:
+        print(path)
+        return 0
+    if args.html:
+        print(render_html_report(record))
+    else:
+        print(render_markdown_report(record), end="")
+    return 0
+
+
+def cmd_report_open(args: argparse.Namespace) -> int:
+    from .artifacts import RunRecordStore
+    from .reports import open_report_path, resolve_report_target, write_report
+
+    store = RunRecordStore()
+    record, path = resolve_report_target(store, args.target)
+    if record is None and path is None:
+        print("freellmpool report: no run records found", file=sys.stderr)
+        return 3
+    if record is not None:
+        path = write_report(record, "html", store=store)
+    assert path is not None
+    if not path.exists():
+        print(f"freellmpool report: report not found: {path}", file=sys.stderr)
+        return 3
+    open_report_path(path)
+    return 0
+
+
+def cmd_cost_show(args: argparse.Namespace) -> int:
+    from .artifacts import RunRecordStore
+    from .reports import render_cost_report
+
+    record = RunRecordStore().get(args.run_id)
+    if record is None:
+        print(
+            f"freellmpool cost: run not found: {args.run_id}. "
+            "Run `freellmpool report list` to see available runs.",
+            file=sys.stderr,
+        )
+        return 3
+    print(render_cost_report(record))
+    return 0
+
+
+def cmd_profile_list(args: argparse.Namespace) -> int:
+    from .profiles import render_profile_list
+
+    print(render_profile_list())
+    return 0
+
+
+def cmd_profile_show(args: argparse.Namespace) -> int:
+    from .profiles import get_profile, render_profile
+
+    profile = get_profile(args.name)
+    if profile is None:
+        print(f"freellmpool: unknown profile '{args.name}'", file=sys.stderr)
+        return 3
+    print(render_profile(profile))
+    return 0
+
+
+def cmd_profile_install(args: argparse.Namespace) -> int:
+    from .profiles import get_profile, render_profile_quickstart
+
+    profile = get_profile(args.name)
+    if profile is None:
+        print(f"freellmpool: unknown profile '{args.name}'", file=sys.stderr)
+        return 3
+    print(render_profile_quickstart(profile))
+    print("\nConfig snippets:")
+    for label, snippet in sorted(profile.config_snippets.items()):
+        print(f"\n--- {label} ---")
+        print(snippet)
+    return 0
+
+
+def cmd_profile_doctor(args: argparse.Namespace) -> int:
+    from .profiles import (
+        get_profile,
+        profile_with_base_url,
+        render_doctor_plan,
+        run_doctor,
+    )
+
+    profile = get_profile(args.name)
+    if profile is None:
+        print(f"freellmpool: unknown profile '{args.name}'", file=sys.stderr)
+        return 3
+    if args.base_url:
+        profile = profile_with_base_url(profile, args.base_url)
+    if args.dry_run:
+        print(render_doctor_plan(profile))
+        return 0
+    code, lines = run_doctor(profile, timeout=args.timeout)
+    print("\n".join(lines))
+    return code
 
 
 def cmd_code(args: argparse.Namespace) -> int:
@@ -855,13 +1793,58 @@ def build_parser() -> argparse.ArgumentParser:
         "-m", "--model", help="model name, or provider/model (e.g. groq/llama-3.3-70b-versatile)"
     )
     p_ask.add_argument("-p", "--providers", help="comma-separated provider ids to allow")
-    p_ask.add_argument("--max-tokens", type=int, default=1024)
-    p_ask.add_argument("--temperature", type=float, default=0.0)
+    p_ask.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="max output tokens (default: 1024, or the role's default)",
+    )
+    p_ask.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="sampling temperature (default: 0.0, or the role's default)",
+    )
+    p_ask.add_argument("--timeout", type=float, default=90.0, help="upstream provider timeout seconds")
+    p_ask.add_argument(
+        "-r",
+        "--role",
+        help="use a role preset (see `freellmpool roles`)",
+    )
+    p_ask.add_argument(
+        "--routing",
+        choices=PUBLIC_ROUTING_ALIASES,
+        help="routing mode override (auto uses the pool default)",
+    )
+    p_ask.add_argument(
+        "--mode",
+        choices=["normal", "wise"],
+        help="per-command quota mode override (default: FREELLMPOOL_MODE or config)",
+    )
+    p_ask.add_argument(
+        "--second-opinion",
+        action="store_true",
+        help="ask a small panel of diverse free models instead of one model",
+    )
+    p_ask.add_argument(
+        "--opinions",
+        type=int,
+        default=3,
+        help="number of models for --second-opinion (clamped to 2-5)",
+    )
+    p_ask.add_argument(
+        "--synthesize",
+        action="store_true",
+        help="append a quality-routed synthesis for --second-opinion",
+    )
     p_ask.add_argument(
         "--json", action="store_true", help="ask for JSON output and strip code fences"
     )
     p_ask.add_argument("-v", "--verbose", action="store_true", help="report which provider served")
     p_ask.set_defaults(func=cmd_ask)
+
+    p_roles = sub.add_parser("roles", help="list available ask roles")
+    p_roles.set_defaults(func=cmd_roles)
 
     p_tokenmax = sub.add_parser(
         "tokenmax",
@@ -876,11 +1859,173 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-tokens", type=int, default=400, help="max output tokens per model"
     )
     p_tokenmax.add_argument(
+        "--timeout", type=float, default=90.0, help="upstream provider timeout seconds"
+    )
+    p_tokenmax.add_argument(
         "--no-synthesize",
         action="store_true",
         help="just dump every answer; skip the synthesized verdict",
     )
+    p_tokenmax.add_argument(
+        "--mode",
+        choices=["normal", "wise"],
+        help="per-command quota mode override (default: FREELLMPOOL_MODE or config)",
+    )
+    p_tokenmax.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="confirm wise-mode fan-out prompts",
+    )
     p_tokenmax.set_defaults(func=cmd_tokenmax)
+
+    p_battle = sub.add_parser("battle", help="compare a prompt across a small model panel")
+    p_battle.add_argument("prompt", nargs="?", default="", help="prompt text (stdin is appended)")
+    p_battle.add_argument(
+        "-n",
+        "--models",
+        type=int,
+        default=3,
+        help="number of models to compare (clamped to 2-5)",
+    )
+    p_battle.add_argument(
+        "--max-tokens", type=int, default=512, help="max output tokens per model"
+    )
+    p_battle.add_argument("--timeout", type=float, default=90.0, help="upstream timeout seconds")
+    p_battle.add_argument(
+        "--routing",
+        choices=PUBLIC_ROUTING_ALIASES,
+        default="quality",
+        help="routing mode for candidate selection",
+    )
+    p_battle.add_argument(
+        "--synthesize",
+        action="store_true",
+        help="append a synthesis using the shared second-opinion synthesis path",
+    )
+    p_battle.set_defaults(func=cmd_battle)
+
+    p_playground = sub.add_parser("playground", help="print the local playground URL")
+    p_playground.add_argument("--port", type=int, default=8080, help="proxy port")
+    p_playground.set_defaults(func=cmd_playground)
+
+    p_recipe = sub.add_parser("recipe", help="run bundled JSON workflow recipes")
+    recipe_sub = p_recipe.add_subparsers(dest="recipe_command", required=True)
+    p_recipe_list = recipe_sub.add_parser("list", help="list bundled recipes")
+    p_recipe_list.add_argument("--json", action="store_true", help="emit versioned JSON")
+    p_recipe_list.set_defaults(func=cmd_recipe_list)
+    p_recipe_show = recipe_sub.add_parser("show", help="show a bundled recipe")
+    p_recipe_show.add_argument("name", help="recipe name")
+    p_recipe_show.add_argument("--json", action="store_true", help="emit JSON")
+    p_recipe_show.set_defaults(func=cmd_recipe_show)
+    p_recipe_run = recipe_sub.add_parser("run", help="run a bundled recipe")
+    p_recipe_run.add_argument("name", help="recipe name")
+    p_recipe_run.add_argument("prompt", nargs="?", default="", help="prompt text input")
+    p_recipe_run.add_argument("--input", help="read recipe input from a file")
+    p_recipe_run.add_argument("--path", help="read files matching a path/glob for path recipes")
+    p_recipe_run.add_argument("--validation-output", help="validation output text")
+    p_recipe_run.add_argument("--validation-output-file", help="read validation output from a file")
+    p_recipe_run.add_argument("--opinions", type=int, default=3, help="panel size for panel recipes")
+    p_recipe_run.add_argument("--synthesize", action="store_true", help="append panel synthesis")
+    p_recipe_run.add_argument("--max-tokens", type=int, default=None, help="max output tokens")
+    p_recipe_run.add_argument("--timeout", type=float, default=90.0, help="upstream timeout seconds")
+    p_recipe_run.set_defaults(func=cmd_recipe_run)
+
+    p_jobs = sub.add_parser(
+        "jobs",
+        help="local foreground job queue for slow, quota-aware work",
+    )
+    jobs_sub = p_jobs.add_subparsers(dest="jobs_command", required=True)
+
+    p_jobs_add = jobs_sub.add_parser("add", help="queue a recipe or ask job")
+    p_jobs_add.add_argument("--recipe", help="bundle a named recipe as the job's payload")
+    p_jobs_add.add_argument(
+        "--role", help="queue an ask job with a role preset (requires a prompt)"
+    )
+    p_jobs_add.add_argument("prompt", nargs="?", default="", help="prompt or recipe text")
+    p_jobs_add.add_argument("--input", help="recipe input file")
+    p_jobs_add.add_argument("--path", help="recipe path glob (path recipes)")
+    p_jobs_add.add_argument("--validation-output", help="recipe validation output text")
+    p_jobs_add.add_argument(
+        "--validation-output-file", help="read recipe validation output from a file"
+    )
+    p_jobs_add.add_argument(
+        "--opinions", type=int, default=3, help="panel size for panel recipes"
+    )
+    p_jobs_add.add_argument("--synthesize", action="store_true", help="append panel synthesis")
+    p_jobs_add.add_argument("--max-tokens", type=int, default=None, help="max output tokens")
+    p_jobs_add.add_argument("--timeout", type=float, default=90.0, help="upstream timeout seconds")
+    p_jobs_add.add_argument(
+        "--dedupe",
+        action="store_true",
+        help="reject re-submission of the same recipe/role while pending",
+    )
+    p_jobs_add.set_defaults(func=cmd_jobs_add)
+
+    p_jobs_list = jobs_sub.add_parser("list", help="show replayed queue state")
+    p_jobs_list.add_argument(
+        "--status",
+        help="comma-separated status filter (pending, running, completed, failed, cancelled)",
+    )
+    p_jobs_list.set_defaults(func=cmd_jobs_list)
+
+    p_jobs_run = jobs_sub.add_parser(
+        "run",
+        help="process pending jobs in the foreground (no daemon)",
+    )
+    p_jobs_run.add_argument("--limit", type=int, default=None, help="max jobs to run this invocation")
+    p_jobs_run.add_argument(
+        "--max-failures",
+        type=int,
+        default=None,
+        help="stop after N consecutive failed executions in this run",
+    )
+    p_jobs_run.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print execution order without mutating the queue",
+    )
+    p_jobs_run.set_defaults(func=cmd_jobs_run)
+
+    p_jobs_watch = jobs_sub.add_parser(
+        "watch",
+        help="render the replayed queue (refresh; no daemon)",
+    )
+    p_jobs_watch.set_defaults(func=cmd_jobs_watch)
+
+    p_jobs_cancel = jobs_sub.add_parser(
+        "cancel",
+        help="append a cancel tombstone for a queued or running job",
+    )
+    p_jobs_cancel.add_argument("job_id", help="job id from `freellmpool jobs list`")
+    p_jobs_cancel.set_defaults(func=cmd_jobs_cancel)
+
+    p_report = sub.add_parser("report", help="render local Markdown/HTML run reports")
+    report_sub = p_report.add_subparsers(dest="report_command", required=True)
+    p_report_list = report_sub.add_parser("list", help="list recent run records")
+    p_report_list.add_argument("--limit", type=int, default=20, help="number of records to show")
+    p_report_list.set_defaults(func=cmd_report_list)
+    p_report_last = report_sub.add_parser("last", help="render the newest valid run record")
+    p_report_last.add_argument(
+        "--markdown",
+        action="store_true",
+        help="render Markdown (default unless --html is passed)",
+    )
+    p_report_last.add_argument("--html", action="store_true", help="render HTML")
+    p_report_last.add_argument("--path", action="store_true", help="print the written report path")
+    p_report_last.add_argument("--open", action="store_true", help="open the written report path")
+    p_report_last.set_defaults(func=cmd_report_last)
+    p_report_open = report_sub.add_parser(
+        "open", help="open a generated report path or render/open a run id"
+    )
+    p_report_open.add_argument("target", nargs="?", help="run id or report file path")
+    p_report_open.set_defaults(func=cmd_report_open)
+
+    p_cost = sub.add_parser("cost", help="show local cost/quota audits for run records")
+    cost_sub = p_cost.add_subparsers(dest="cost_command", required=True)
+    p_cost_show = cost_sub.add_parser("show", help="show estimated cost avoided for a run")
+    p_cost_show.add_argument("run_id", help="run id from `freellmpool report list`")
+    p_cost_show.set_defaults(func=cmd_cost_show)
 
     p_prov = sub.add_parser("providers", help="list providers and configuration status")
     prov_sub = p_prov.add_subparsers(dest="providers_command")
@@ -908,8 +2053,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_quota = sub.add_parser("quota", help="show today's per-provider usage")
     p_quota.set_defaults(func=cmd_quota)
 
+    p_quota_wise = sub.add_parser("quota-wise", help="inspect quota-wise mode headroom")
+    quota_wise_sub = p_quota_wise.add_subparsers(dest="quota_wise_command", required=True)
+    p_quota_wise_status = quota_wise_sub.add_parser(
+        "status", help="show local headroom and the recommended mode"
+    )
+    p_quota_wise_status.set_defaults(func=cmd_quota_wise_status)
+
     p_stats = sub.add_parser(
-        "stats", help="lifetime usage totals (tokens served free, avoided cost)"
+        "stats", help="lifetime usage totals (tokens served free, estimated cost avoided)"
     )
     p_stats.set_defaults(func=cmd_stats)
 
@@ -1028,7 +2180,128 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="require this Bearer token on requests (or set FREELLMPOOL_PROXY_KEY)",
     )
+    p_proxy.add_argument(
+        "--tailnet",
+        action="store_true",
+        help="alias for `freellmpool tailnet serve` — bind to the local 100.x Tailnet IPv4, require auth",
+    )
+    p_proxy.add_argument(
+        "--allow-lan",
+        action="store_true",
+        help="allow binding to a non-Tailnet LAN address (still requires auth unless --allow-no-auth)",
+    )
+    p_proxy.add_argument(
+        "--allow-no-auth",
+        action="store_true",
+        help="explicit escape hatch: serve on a non-loopback bind with NO proxy key",
+    )
     p_proxy.set_defaults(func=cmd_proxy)
+
+    p_tailnet = sub.add_parser(
+        "tailnet",
+        help="Tailnet gateway: serve freellmpool over a Tailscale 100.x address",
+    )
+    tailnet_sub = p_tailnet.add_subparsers(dest="tailnet_command", required=True)
+
+    p_tailnet_status = tailnet_sub.add_parser(
+        "status", help="report Tailscale availability, local Tailnet IPv4, and auth readiness"
+    )
+    p_tailnet_status.add_argument(
+        "--port", type=int, default=8080, help="port to suggest in the next-step hint"
+    )
+    p_tailnet_status.set_defaults(func=cmd_tailnet_status)
+
+    p_tailnet_serve = tailnet_sub.add_parser(
+        "serve", help="bind the proxy to the local Tailnet IPv4 (auth required by default)"
+    )
+    p_tailnet_serve.add_argument("--port", type=int, default=8080)
+    p_tailnet_serve.add_argument(
+        "--api-key",
+        default=None,
+        help="require this Bearer token on requests (or set FREELLMPOOL_PROXY_KEY). "
+        "If omitted, a one-session token is generated and printed.",
+    )
+    p_tailnet_serve.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the bind address, auth status, and client setup hints without starting a server",
+    )
+    p_tailnet_serve.add_argument(
+        "--allow-lan",
+        action="store_true",
+        help="allow binding to a non-Tailnet LAN address (still requires auth unless --allow-no-auth)",
+    )
+    p_tailnet_serve.add_argument(
+        "--allow-no-auth",
+        action="store_true",
+        help="explicit escape hatch: serve on a non-loopback bind with NO proxy key",
+    )
+    p_tailnet_serve.set_defaults(func=cmd_tailnet_serve)
+
+    p_tailnet_connect = tailnet_sub.add_parser(
+        "connect",
+        help="print the OpenAI / Anthropic base URL and env exports for a remote tailnet proxy",
+    )
+    p_tailnet_connect.add_argument("host", help="tailnet host (MagicDNS name) or 100.x IPv4 of the host running `tailnet serve`")
+    p_tailnet_connect.add_argument(
+        "--port", type=int, default=8080, help="port the remote proxy is listening on"
+    )
+    p_tailnet_connect.set_defaults(func=cmd_tailnet_connect)
+
+    p_init = sub.add_parser("init", help="detect environment and print first-run setup plans")
+    p_init.add_argument("--yes", action="store_true", help="non-interactive; print a plan")
+    p_init.add_argument("--json", action="store_true", help="print machine-readable detection JSON")
+    p_init.add_argument("--agent", help="agent profile to set up, e.g. opencode or metaswarm")
+    p_init.add_argument(
+        "--tailnet",
+        action="store_true",
+        help="include Tailnet gateway commands and remote client environment",
+    )
+    p_init.add_argument("--port", type=int, default=8080, help="proxy/tailnet port")
+    p_init.add_argument(
+        "--force",
+        action="store_true",
+        help="reserved for future write modes; current init plans are print-only",
+    )
+    p_init.set_defaults(func=cmd_init)
+
+    p_profile = sub.add_parser(
+        "profile", help="list, show, install, and diagnose agent profiles"
+    )
+    profile_sub = p_profile.add_subparsers(dest="profile_command", required=True)
+
+    p_profile_list = profile_sub.add_parser("list", help="list available profiles")
+    p_profile_list.set_defaults(func=cmd_profile_list)
+
+    p_profile_show = profile_sub.add_parser("show", help="show a profile")
+    p_profile_show.add_argument("name", help="profile name")
+    p_profile_show.set_defaults(func=cmd_profile_show)
+
+    p_profile_install = profile_sub.add_parser(
+        "install", help="print copy-pastable setup snippets for a profile"
+    )
+    p_profile_install.add_argument("name", help="profile name")
+    p_profile_install.set_defaults(func=cmd_profile_install)
+
+    p_profile_doctor = profile_sub.add_parser("doctor", help="check a profile setup")
+    p_profile_doctor.add_argument("name", help="profile name")
+    p_profile_doctor.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print checks without running binaries or network calls",
+    )
+    p_profile_doctor.add_argument(
+        "--base-url",
+        default=None,
+        help="override the local proxy base URL for URL checks",
+    )
+    p_profile_doctor.add_argument(
+        "--timeout",
+        type=float,
+        default=2.0,
+        help="per-check network timeout in seconds",
+    )
+    p_profile_doctor.set_defaults(func=cmd_profile_doctor)
 
     p_mcp = sub.add_parser(
         "mcp", help="run an MCP server (stdio) so MCP clients can use free models"

@@ -286,7 +286,7 @@ def test_streaming_sse(server):
 
 
 def test_streaming_counts_tokens(providers, env, quota):
-    """Streamed responses must accrue token usage (else $ saved / tokens / tok/s never
+    """Streamed responses must accrue token usage (else estimated savings / tokens / tok/s never
     move for streaming clients like OpenCode). Tokens are estimated from the streamed
     text, so /status reflects the stream after it drains."""
     stream = make_stream_post({"alpha": ["Hello there, ", "this is a ", "streamed answer."]})

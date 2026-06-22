@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "freellmpool"
-version = "0.11.3"
-description = "Free LLM API pool: 18 LLM providers, 200+ live models, 300+ cataloged models, zero keys to start, failover."
+version = "0.11.4"
+description = "Free LLM API pool: 19 LLM providers cataloged, 235 routes, 355 cataloged chat models, keyless start when available."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -82,6 +82,18 @@ packages = ["src/freellmpool"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/freellmpool/providers.toml" = "freellmpool/providers.toml"
 "src/freellmpool/capability_scores.json" = "freellmpool/capability_scores.json"
+"src/freellmpool/recipes/second-opinion.json" = "freellmpool/recipes/second-opinion.json"
+"src/freellmpool/recipes/pr-review.json" = "freellmpool/recipes/pr-review.json"
+"src/freellmpool/recipes/repo-summary.json" = "freellmpool/recipes/repo-summary.json"
+"src/freellmpool/recipes/launch-copy-critic.json" = "freellmpool/recipes/launch-copy-critic.json"
+"src/freellmpool/recipes/metaswarm-worker-review.json" = "freellmpool/recipes/metaswarm-worker-review.json"
+
+[tool.hatch.build.targets.sdist.force-include]
+"src/freellmpool/recipes/second-opinion.json" = "src/freellmpool/recipes/second-opinion.json"
+"src/freellmpool/recipes/pr-review.json" = "src/freellmpool/recipes/pr-review.json"
+"src/freellmpool/recipes/repo-summary.json" = "src/freellmpool/recipes/repo-summary.json"
+"src/freellmpool/recipes/launch-copy-critic.json" = "src/freellmpool/recipes/launch-copy-critic.json"
+"src/freellmpool/recipes/metaswarm-worker-review.json" = "src/freellmpool/recipes/metaswarm-worker-review.json"
 
 [tool.ruff]
 line-length = 100

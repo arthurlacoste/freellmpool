@@ -15,7 +15,7 @@ REQUIRED_P9_TOPICS = {
     "rate-limiting",
 }
 
-RECOMMENDED_TOPICS = {
+CURRENT_TOPICS = {
     "anthropic",
     "claude",
     "codex",
@@ -39,44 +39,44 @@ RECOMMENDED_TOPICS = {
 }
 
 
-def test_github_discovery_checklist_has_complete_topic_plan():
+def test_github_discovery_checklist_has_current_topic_set():
     doc = (ROOT / "docs/GITHUB_DISCOVERY.md").read_text(encoding="utf-8")
 
     for topic in REQUIRED_P9_TOPICS:
         assert topic in doc
 
-    recommended = doc.split("Recommended 20-topic set:", 1)[1].split(
-        "This removes", 1
+    current = doc.split("Current 20-topic set:", 1)[1].split(
+        "The previous P9 gap", 1
     )[0]
-    for topic in RECOMMENDED_TOPICS:
-        assert f"`{topic}`" in recommended
+    for topic in CURRENT_TOPICS:
+        assert f"`{topic}`" in current
 
-    assert len(RECOMMENDED_TOPICS) == 20
-    assert "Do not run these write commands during the polish pass." in doc
-    assert "No external writes were performed" in doc
+    assert len(CURRENT_TOPICS) == 20
+    assert "The previous P9 gap topics are now present" in doc
 
 
 def test_github_discovery_description_stays_within_about_limit():
     doc = (ROOT / "docs/GITHUB_DISCOVERY.md").read_text(encoding="utf-8")
-    match = re.search(r"Recommended description \((\d+) chars\):\n\n> (.+)", doc)
+    match = re.search(r"Current About description \((\d+) chars\):\n\n> (.+)", doc)
 
     assert match is not None
     expected_len = int(match.group(1))
     description = match.group(2)
     assert len(description) == expected_len
     assert len(description) <= 120
-    assert "zero keys to start" in description
-    assert "18 LLM providers" in description
-    assert "failover" in description
+    assert "keyless start when available" in description
+    assert "19 LLM providers" in description
+    assert "235 routes" in description
+    assert "355 cataloged chat models" in description
 
 
 def test_github_discovery_includes_operator_only_actions():
     doc = (ROOT / "docs/GITHUB_DISCOVERY.md").read_text(encoding="utf-8")
 
     assert "gh repo edit 0xzr/freellmpool" in doc
-    assert "--remove-topic ai" in doc
-    assert "--add-topic anthropic" in doc
+    assert "--description" in doc
     assert "assets/social-preview.svg" in doc
+    assert "assets/social-preview.png" in doc
     assert "Pin `0xzr/freellmpool`" in doc
 
 
@@ -93,13 +93,14 @@ def test_social_preview_svg_matches_github_preview_requirements():
     assert svg_path.stat().st_size < 1_000_000
 
     for text in (
-        "zero keys",
-        "18 providers",
-        "200+ models",
-        "OpenAI +",
-        "Anthropic proxy",
+        "keyless start",
+        "19 cataloged",
+        "235 routes",
+        "OpenAI proxy",
+        "exp. Anthropic",
         "failover",
-        "rate limits",
+        "quota tracking",
+        "quotas",
         "transcription",
     ):
         assert text in preview

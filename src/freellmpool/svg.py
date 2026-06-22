@@ -95,7 +95,7 @@ def _flat_badge(label: str, value: str, color: str) -> str:
 def badge_svg(stats: dict, *, label: str = "freellmpool", metric: str = "tokens") -> str:
     """A small embeddable badge. ``metric``: tokens | saved | requests."""
     if metric == "saved":
-        value, color = f"{_money(_saved(stats))} saved", _GREEN
+        value, color = f"est. {_money(_saved(stats))} saved", _GREEN
     elif metric == "requests":
         value, color = f"{_compact(stats.get('requests', 0))} served", _BRAND
     else:
@@ -104,7 +104,7 @@ def badge_svg(stats: dict, *, label: str = "freellmpool", metric: str = "tokens"
 
 
 def summary_svg(stats: dict, leaderboard: list[tuple[str, float]] | None = None) -> str:
-    """A larger shareable card: avoided cost, tokens served free, requests, the
+    """A larger shareable card: estimated cost avoided, tokens served free, requests, the
     'serving free since' date, and an optional provider leaderboard (name, 0..1)."""
     lb = leaderboard or []
     width, top = 460, 150
@@ -123,7 +123,7 @@ def summary_svg(stats: dict, leaderboard: list[tuple[str, float]] | None = None)
         f"free LLMs, pooled</text>",
         f'<text x="20" y="84" fill="{_GREEN}" font-size="38" font-weight="bold">'
         f"{_esc(_money(_saved(stats)))}</text>",
-        f'<text x="20" y="104" fill="{_MUTED}" font-size="12">avoided cost (Claude Opus 4.8 rates)</text>',
+        f'<text x="20" y="104" fill="{_MUTED}" font-size="12">estimated cost avoided (Claude Opus 4.8 rates)</text>',
         f'<text x="20" y="132" fill="{_TEXT}" font-size="13">'
         f"{_esc(_compact(_tokens(stats)))} tokens served free  ·  "
         f"{_esc(_compact(stats.get('requests', 0)))} requests"

@@ -23,3 +23,11 @@ def test_render_unknown():
 def test_all_agents_render():
     for name in AGENTS:
         assert render(name)
+
+
+def test_agents_legacy_shape_is_preserved():
+    rec = AGENTS["aider"]
+    assert "label" in rec
+    assert "steps" in rec
+    assert "note" in rec
+    assert any("freellmpool proxy" in step for step in rec["steps"])
