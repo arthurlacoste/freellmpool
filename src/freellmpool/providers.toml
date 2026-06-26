@@ -60,8 +60,10 @@ models = [
 # Kilo Gateway: keyless OpenAI-compatible aggregator of FREE models (200 req/hr per IP,
 # no key). Models carry a provider/ prefix (handled by _parse_model's first-slash split,
 # same as openrouter). Note: free routes may log prompts — don't send confidential data.
-# Model set live-validated 2026-06-08; the 550B nemotron (~128s) and nex-n2-pro (no choices)
-# were dropped as too-slow / broken.
+# Model set live-validated 2026-06-08; the nex-n2-pro (no choices) was dropped as broken.
+# The 550B nemotron was dropped then (~128s, too slow) but is cataloged as
+# enabled=false: pin-callable yet skipped by auto-routing so a keyless user can't be
+# routed onto a >2-minute completion. Re-validated 2026-06-23: still >120s.
 [[provider]]
 id = "kilo"
 label = "Kilo Gateway (keyless)"
@@ -76,6 +78,8 @@ models = [
     { name = "stepfun/step-3.7-flash:free", rpd = 0 },
     { name = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", rpd = 0 },
     { name = "nvidia/nemotron-3-super-120b-a12b:free", rpd = 0 },
+    { name = "nvidia/nemotron-3-ultra-550b-a55b:free", rpd = 0, enabled = false },
+    { name = "cohere/north-mini-code:free", rpd = 0 },
 ]
 
 # OpenCode Zen: keyless OpenAI-compatible gateway. Free promotional routes expire
@@ -284,6 +288,7 @@ models = [
     { name = "cognitivecomputations/dolphin-mistral-24b-venice-edition:free", rpd = 1000 },
     { name = "meta-llama/llama-3.2-3b-instruct:free", rpd = 1000 },
     { name = "nvidia/nemotron-3-ultra-550b-a55b:free", rpd = 1000 },
+    { name = "cohere/north-mini-code:free", rpd = 1000 },
 ]
 
 [[provider]]

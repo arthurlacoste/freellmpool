@@ -45,9 +45,7 @@ def test_github_discovery_checklist_has_current_topic_set():
     for topic in REQUIRED_P9_TOPICS:
         assert topic in doc
 
-    current = doc.split("Current 20-topic set:", 1)[1].split(
-        "The previous P9 gap", 1
-    )[0]
+    current = doc.split("Current 20-topic set:", 1)[1].split("The previous P9 gap", 1)[0]
     for topic in CURRENT_TOPICS:
         assert f"`{topic}`" in current
 
@@ -66,8 +64,8 @@ def test_github_discovery_description_stays_within_about_limit():
     assert len(description) <= 120
     assert "keyless start when available" in description
     assert "19 LLM providers" in description
-    assert "235 routes" in description
-    assert "355 cataloged chat models" in description
+    assert "237 routes" in description
+    assert "358 cataloged chat models" in description
 
 
 def test_github_discovery_includes_operator_only_actions():
@@ -95,7 +93,7 @@ def test_social_preview_svg_matches_github_preview_requirements():
     for text in (
         "keyless start",
         "19 cataloged",
-        "235 routes",
+        "237 routes",
         "OpenAI proxy",
         "exp. Anthropic",
         "failover",
